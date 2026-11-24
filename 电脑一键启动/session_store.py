@@ -25,7 +25,7 @@ def load(path: Optional[Path] = None) -> Optional[Dict[str, Any]]:
     if not target.is_file():
         return None
     try:
-        data = json.loads(target.read_text(encoding="utf-8"))
+        data = json.loads(target.read_text(encoding="utf-8-sig"))
     except (OSError, json.JSONDecodeError):
         return None
     if not isinstance(data, dict) or not data.get("token") or not data.get("uid"):

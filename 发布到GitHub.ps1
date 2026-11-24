@@ -110,7 +110,7 @@ try {
 
     if (-not $Message) { $Message = "更新：" + (Get-Date -Format "yyyy-MM-dd HH:mm") }
     $tmpMessage = Join-Path ([System.IO.Path]::GetTempPath()) ("commit-" + [guid]::NewGuid().ToString("N") + ".txt")
-    Set-Content $tmpMessage -Value $Message -Encoding UTF8
+    [System.IO.File]::WriteAllText($tmpMessage, $Message, [System.Text.UTF8Encoding]::new($false))
     git commit -F $tmpMessage --quiet 2>&1 | Out-Null
     $commitExit = $LASTEXITCODE
     Remove-Item $tmpMessage -Force -ErrorAction SilentlyContinue

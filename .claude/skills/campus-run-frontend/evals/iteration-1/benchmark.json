@@ -1,0 +1,359 @@
+{
+  "metadata": {
+    "skill_name": "campus-run-frontend",
+    "skill_path": "<path/to/skill>",
+    "executor_model": "<model-name>",
+    "analyzer_model": "<model-name>",
+    "timestamp": "2026-11-05T06:49:40Z",
+    "evals_run": [
+      0,
+      1,
+      2
+    ],
+    "runs_per_configuration": 3
+  },
+  "runs": [
+    {
+      "eval_id": 0,
+      "configuration": "with_skill",
+      "run_number": 1,
+      "result": {
+        "pass_rate": 1.0,
+        "passed": 4,
+        "failed": 0,
+        "total": 4,
+        "time_seconds": 272.1,
+        "tokens": 109686,
+        "tool_calls": 76,
+        "errors": 0
+      },
+      "expectations": [
+        {
+          "text": "指出「导出记录」的出处是 UI_SPEC.json 的 screens[].copy 或 copyDeck，而不是普通硬编码字符串",
+          "passed": true,
+          "evidence": "REPORT.md 与 PROJECT_CHAIN.md 新条目都明确指出文案来源是 `UI_SPEC.json` 的 `screens[result].copy.exportButton` 与 `actions[export].label`，并引用了 `copyDeck.terminology` 的冲突。"
+        },
+        {
+          "text": "改动文案后把它记录为规格偏离（静态稿 README 的「设计变更」或 PROJECT_CHAIN.md），或明确向用户说明需要先确认",
+          "passed": true,
+          "evidence": "同时做了三处记录：`UI_SPEC.json` 升 1.0.2 并新增 DC-03、`静态稿/README.md` 设计变更、`PROJECT_CHAIN.md` 顶部新条目；条目包含背景/决定/原因/影响/下一步。"
+        },
+        {
+          "text": "没有顺带修改与本次文案无关的页面、样式或结构",
+          "passed": true,
+          "evidence": "`git diff --stat` 的 16 个文件全部围绕同一文案：10 个 result 状态页、`tools/build.py` 同一按钮、README、UI_SPEC 的 copy/actions/wireframe/versionHistory、两份人读文档的同一按钮引用、以及思维链。没有样式或其他页面改动。"
+        },
+        {
+          "text": "最终报告说明是否更新了 PROJECT_CHAIN.md，以及原因",
+          "passed": true,
+          "evidence": "REPORT.md 明确写「思维链：已追加『结果页次按钮文案改为保存记录』」，并解释了原因：该文案与 copyDeck 术语冲突，容易被后续会话当 bug 改回去。"
+        }
+      ],
+      "notes": [
+        "copyDeck 把「保存记录」列为结算场景避用词，本次用于本地导出按钮是否可接受未定。",
+        "导出确认 Sheet、loading、成功/失败提示仍用「导出」，是否统一未定。",
+        "AI_SPEC.json 的 result action label 仍为「导出记录」，是否同步未定。",
+        "本次把「其他不要动」扩展成了 UI_SPEC 升版 + 两份人读文档同步；如果用户要求严格只改按钮，这属于范围扩大。",
+        "tools/build.py 整体落后于静态稿，只同步了按钮字符串，没有重跑生成器。"
+      ]
+    },
+    {
+      "eval_id": 1,
+      "configuration": "with_skill",
+      "run_number": 1,
+      "result": {
+        "pass_rate": 1.0,
+        "passed": 4,
+        "failed": 0,
+        "total": 4,
+        "time_seconds": 293.6,
+        "tokens": 122402,
+        "tool_calls": 66,
+        "errors": 0
+      },
+      "expectations": [
+        {
+          "text": "计划从当前真实阶段出发：指出静态稿已完成、Vue3/Capacitor 工程尚未开始（下一步是 M0）",
+          "passed": true,
+          "evidence": "PLAN.md 开头结论为「下一步是 M0『脚手架与桥验证』，不是继续做 UI」，并列出静态稿 38 个 HTML、`可视化页面/app/` 不存在、M0 完成标志。"
+        },
+        {
+          "text": "点名至少两个会影响开工的阻塞或待确认项（如 GAP-02 runAreaId、Q-04 测试账号、Q-05 单/多区域）",
+          "passed": true,
+          "evidence": "PLAN.md 的 G0–G5 闸门列出了 Q-01 包名、Q-10/GAP-08 极验隔离、Q-05/GAP-02 区域选择、G5 授权同步 AI_SPEC；报告也列出 GAP-02、Q-05、Q-04 等。"
+        },
+        {
+          "text": "计划具体到可执行动作、涉及的文件或目录、先后顺序与验收标准，而不是只复述 M0-M5 的名称",
+          "passed": true,
+          "evidence": "PLAN.md 给出 A 规格基线、B 脚手架、C Chaquopy+桥、D 极验试点的顺序，逐项列出要改的 JSON 字段（如 `navigation.tabs`、`routes`、`screens`）、要创建的文件、以及可运行的 assert 验收脚本和 M0 真机验收标准。"
+        },
+        {
+          "text": "没有修改仓库文件，并在报告里说明是否更新了 PROJECT_CHAIN.md 及原因",
+          "passed": true,
+          "evidence": "`git status --short` 在 repo 中为空；REPORT.md 明确写「思维链：本次无需更新（任务是只读规划，未产生已确认决策或里程碑；计划已规定 M0 完成时再写）」。"
+        }
+      ],
+      "notes": [
+        "协议目录的恢复来源（sandbox 未包含协议目录，真实仓库应存在）。",
+        "Q-01 包名、Q-10/GAP-08 极验方案仍未定。",
+        "G5：是否授权同步 AI_SPEC 到新基线。",
+        "计划把「同步 AI_SPEC / UI_SPEC」放在 M0 之前，属于跨层改动；skill 要求先获得确认，计划已用 G5 标注，但仍需用户拍板。",
+        "对未确认项给出默认决策（包名沿用、极验独立 WebView、深色主题不切换），避免计划停在等待上。"
+      ]
+    },
+    {
+      "eval_id": 2,
+      "configuration": "with_skill",
+      "run_number": 1,
+      "result": {
+        "pass_rate": 1.0,
+        "passed": 6,
+        "failed": 0,
+        "total": 6,
+        "time_seconds": 298.8,
+        "tokens": 135567,
+        "tool_calls": 78,
+        "errors": 0
+      },
+      "expectations": [
+        {
+          "text": "新增的分享入口与分享面板都是独立状态页，符合 360×800、纯 HTML/CSS、无 JS 的静态稿规范",
+          "passed": true,
+          "evidence": "新增 `screens/result-share.html`（8.2KB），使用 `.frame` 容器与 `body.single`；`grep -c '<script'` 为 0；`check_static.py` 确认无脚本、无外部资源、viewport 齐全。分享入口只出现在 `result.html` 与 `result-share.html`。"
+        },
+        {
+          "text": "同步更新了 index.html 的入口/计数与 静态稿/README.md 的状态表或说明",
+          "passed": true,
+          "evidence": "index.html 由「6 个页面、37 个状态」改为 38，并新增 `result-share` 入口；README 的目录与状态表均改为 38 个单状态页面，并把 `result-share` 加入跑步结果行。`check_static.py` 显示 index 入口 38 个。"
+        },
+        {
+          "text": "使用既有设计令牌与组件，没有引入外部字体、图标库、脚本或硬编码主题色",
+          "passed": true,
+          "evidence": "spec.css 新增的 88 行使用 `var(--line)`、`var(--bg2)`、`var(--r-card)` 等既有令牌；对新增行抓取 `#hex` / `rgba()` 结果为空。无外部字体、图标库或脚本。"
+        },
+        {
+          "text": "新增文案（如「分享成绩」「分享面板」内的文字）被明确标为新增/待确认，而不是声称来自 UI_SPEC",
+          "passed": true,
+          "evidence": "PROJECT_CHAIN.md 新条目写明新增文案「分享成绩」「系统分享」暂标待确认，并说明 UI_SPEC / AI_SPEC 没有分享文案与动作；REPORT.md 也区分了来自规格的指标/取消与新增文案。"
+        },
+        {
+          "text": "运行了 check_static.py 并记录了通过或失败的结果",
+          "passed": true,
+          "evidence": "在 sandbox 重跑：`HTML 页面：39 个（index 入口 38 个，重定向页 1 个）… 通过：0 断链，0 外部资源，0 脚本，viewport 齐全`，退出码 0。"
+        },
+        {
+          "text": "在 PROJECT_CHAIN.md 中记录了这次新增的决策，或明确说明为什么不需要更新",
+          "passed": true,
+          "evidence": "顶部新增「2026-11-05 · 结果页新增分享成绩入口（静态稿先行）」，包含背景/决定/原因/影响/下一步；同时更新了「当前状态」的已完成计数与待确认项。"
+        }
+      ],
+      "notes": [
+        "分享载体（文本 / 图片 / JSON）未定。",
+        "AI_SPEC 只有 exportTrace，没有分享桥接方法。",
+        "其他结果态（未通过/未知/取消）是否也应可分享未定。",
+        "UI_SPEC 是否回写未定。",
+        "为保持入口与「导出记录」并排，新增了 `.result-action-row` 两列布局；需人工确认在 360 宽下按钮文字不挤压。",
+        "同步修改了 CLAUDE.md / PROJECT.md 的状态计数（37 → 38），属于任务外的文档维护。",
+        "没有运行已与当前页面不一致的 tools/build.py，手工新增页面。"
+      ]
+    },
+    {
+      "eval_id": 0,
+      "configuration": "without_skill",
+      "run_number": 1,
+      "result": {
+        "pass_rate": 0.75,
+        "passed": 3,
+        "failed": 1,
+        "total": 4,
+        "time_seconds": 166.7,
+        "tokens": 76030,
+        "tool_calls": 33,
+        "errors": 0
+      },
+      "expectations": [
+        {
+          "text": "指出「导出记录」的出处是 UI_SPEC.json 的 screens[].copy 或 copyDeck，而不是普通硬编码字符串",
+          "passed": true,
+          "evidence": "REPORT.md 第 10、55 行明确引用 `UI_SPEC.json` 的 `screens[result].copy.exportButton`、`actions.export.label` 与 `copyDeck.terminology`，并指出本次改动与规范文案冲突。"
+        },
+        {
+          "text": "改动文案后把它记录为规格偏离（静态稿 README 的「设计变更」或 PROJECT_CHAIN.md），或明确向用户说明需要先确认",
+          "passed": true,
+          "evidence": "`git diff` 显示 `可视化页面/静态稿/README.md` 的「设计变更」新增了 2026-11-05 条目，说明「产品明确要求优先于规范文案」及与 UI_SPEC 的冲突。"
+        },
+        {
+          "text": "没有顺带修改与本次文案无关的页面、样式或结构",
+          "passed": true,
+          "evidence": "`git diff --stat` 仅涉及 10 个结果状态页、`tools/build.py` 中同一按钮的文案、以及 README 的流程描述与设计变更；无样式或其他页面改动。"
+        },
+        {
+          "text": "最终报告说明是否更新了 PROJECT_CHAIN.md，以及原因",
+          "passed": false,
+          "evidence": "该 sandbox 是基线配置，没有 PROJECT_CHAIN.md；REPORT.md 解释了为何选择记录在静态稿 README 而不是 UI_SPEC.designChanges，但没有提及 PROJECT_CHAIN.md 或项目决策链。"
+        }
+      ],
+      "notes": [
+        "规范文档（UI_SPEC、AI_SPEC、两份说明）仍写「导出记录」，是否同步未定。",
+        "确认 Sheet 与 loading 仍用「导出」，按钮却叫「保存记录」，同组文案是否统一未定。",
+        "copyDeck.terminology 把「保存记录」列为结算场景应避免用词，存在术语冲突。",
+        "生成器 tools/build.py 与交付稿不同步，直接全量重建会覆盖无关的手工改动。",
+        "只改结果状态页与生成器中同一按钮，未执行全量构建。"
+      ]
+    },
+    {
+      "eval_id": 1,
+      "configuration": "without_skill",
+      "run_number": 1,
+      "result": {
+        "pass_rate": 0.75,
+        "passed": 3,
+        "failed": 1,
+        "total": 4,
+        "time_seconds": 353.5,
+        "tokens": 150017,
+        "tool_calls": 48,
+        "errors": 0
+      },
+      "expectations": [
+        {
+          "text": "计划从当前真实阶段出发：指出静态稿已完成、Vue3/Capacitor 工程尚未开始（下一步是 M0）",
+          "passed": true,
+          "evidence": "PLAN.md 开头写「现在不是直接铺 Vue 页面的时候。仓库只有『规范 + 可点击静态稿』，没有 app/」，并把 P2 标为 M0 工程骨架与桥证明。"
+        },
+        {
+          "text": "点名至少两个会影响开工的阻塞或待确认项（如 GAP-02 runAreaId、Q-04 测试账号、Q-05 单/多区域）",
+          "passed": true,
+          "evidence": "PLAN.md 的门禁包含 G1 协议源码缺失、Token 导入决策矛盾、极验 spike、Q-05/GAP-02 区域选择；REPORT.md 还列出 Q-04 测试账号。"
+        },
+        {
+          "text": "计划具体到可执行动作、涉及的文件或目录、先后顺序与验收标准，而不是只复述 M0-M5 的名称",
+          "passed": true,
+          "evidence": "PLAN.md 给出 P0 规格冻结 → P1 协议恢复 → P2/M0 骨架与桥 → M1 登录的顺序，逐项列出修改位置、并行关系、硬门禁与验收条件；还指出 build.py 与交付稿不同步。"
+        },
+        {
+          "text": "没有修改仓库文件，并在报告里说明是否更新了 PROJECT_CHAIN.md 及原因",
+          "passed": false,
+          "evidence": "`git status --short` 为空，未修改仓库；但该 sandbox 是基线配置，没有 PROJECT_CHAIN.md，REPORT.md 也没有提到项目思维链或为什么没有更新它。"
+        }
+      ],
+      "notes": [
+        "协议源码 协议/7.3.92 不在 sandbox 中（评测环境限制），真实仓库应存在。",
+        "P0 是否应该先冻结规范，还是直接按静态稿搭壳，未与用户确认。",
+        "P0 要改 AI_SPEC/UI_SPEC 两份规范，属于跨层改动；基线没有等待用户授权。",
+        "对未确认项给出并行计划：P0 文档冻结与 P2 脚手架可同时进行。"
+      ]
+    },
+    {
+      "eval_id": 2,
+      "configuration": "without_skill",
+      "run_number": 1,
+      "result": {
+        "pass_rate": 0.5,
+        "passed": 3,
+        "failed": 3,
+        "total": 6,
+        "time_seconds": 351.7,
+        "tokens": 144314,
+        "tool_calls": 68,
+        "errors": 0
+      },
+      "expectations": [
+        {
+          "text": "新增的分享入口与分享面板都是独立状态页，符合 360×800、纯 HTML/CSS、无 JS 的静态稿规范",
+          "passed": true,
+          "evidence": "新增 `screens/result-share.html`（9.7KB），使用 `.frame` 容器与 `body.single`；`grep -c '<script'` 为 0；有 viewport meta；面板在 360×800 视口内。"
+        },
+        {
+          "text": "同步更新了 index.html 的入口/计数与 静态稿/README.md 的状态表或说明",
+          "passed": true,
+          "evidence": "index.html 更新为「38 个状态 / 38 single pages」并加入 `result-share` 入口；README 的目录、状态表与「共 6 个页面、38 个单状态页面」同步更新。"
+        },
+        {
+          "text": "使用既有设计令牌与组件，没有引入外部字体、图标库、脚本或硬编码主题色",
+          "passed": false,
+          "evidence": "新增 CSS 中出现了硬编码颜色 `rgba(107, 227, 154, 0.10)`（`--ok` #6BE39A 的透明变体），没有走令牌；其余尺寸/颜色大多复用既有变量。无外部字体、图标库或脚本。"
+        },
+        {
+          "text": "新增文案（如「分享成绩」「分享面板」内的文字）被明确标为新增/待确认，而不是声称来自 UI_SPEC",
+          "passed": true,
+          "evidence": "README 的「设计变更」明确写：该功能在 `UI_SPEC.json` 中没有对应组件、流程或 copy，属于新增需求；新增文案（分享成绩、分享本次成绩、保存图片、复制成绩、系统分享等）尚未回写 `copyDeck`，待产品确认。"
+        },
+        {
+          "text": "运行了 check_static.py 并记录了通过或失败的结果",
+          "passed": false,
+          "evidence": "基线没有 `check_static.py`；REPORT.md 写「仓库内未发现专门静态稿检查脚本」，改为自建 HTML/链接检查与 Playwright 验证。底层验证做了，但不是指定的脚本。"
+        },
+        {
+          "text": "在 PROJECT_CHAIN.md 中记录了这次新增的决策，或明确说明为什么不需要更新",
+          "passed": false,
+          "evidence": "基线没有 PROJECT_CHAIN.md；只在 `静态稿/README.md` 的「设计变更」记录了入口范围与文案待确认，没有项目决策链条目，也没有解释为什么没有。"
+        }
+      ],
+      "notes": [
+        "分享渠道是否接入第三方 SDK 未定。",
+        "分享卡字段、隐私边界、文案定稿未定。",
+        "其他结果态是否也应可分享未定。",
+        "把分享入口加到了 4 个有效结果的背景态，范围比『跑步结果页』更宽；需确认是否一致。",
+        "新增 CSS 有硬编码 `rgba(107,227,154,0.10)`。",
+        "没有专用检查脚本，自建了 HTML/链接检查与 Playwright 验证。"
+      ]
+    }
+  ],
+  "run_summary": {
+    "with_skill": {
+      "pass_rate": {
+        "mean": 1.0,
+        "stddev": 0.0,
+        "min": 1.0,
+        "max": 1.0
+      },
+      "time_seconds": {
+        "mean": 288.1667,
+        "stddev": 14.155,
+        "min": 272.1,
+        "max": 298.8
+      },
+      "tokens": {
+        "mean": 122551.6667,
+        "stddev": 12941.1491,
+        "min": 109686,
+        "max": 135567
+      }
+    },
+    "without_skill": {
+      "pass_rate": {
+        "mean": 0.6667,
+        "stddev": 0.1443,
+        "min": 0.5,
+        "max": 0.75
+      },
+      "time_seconds": {
+        "mean": 290.6333,
+        "stddev": 107.3332,
+        "min": 166.7,
+        "max": 353.5
+      },
+      "tokens": {
+        "mean": 123453.6667,
+        "stddev": 41168.971,
+        "min": 76030,
+        "max": 150017
+      }
+    },
+    "delta": {
+      "pass_rate": "+0.33",
+      "time_seconds": "-2.5",
+      "tokens": "-902"
+    }
+  },
+  "notes": [
+    "带 skill 的三组都通过了「思维链」相关断言；不带 skill 的三组因为没有 PROJECT_CHAIN.md 自动失败。这部分的 +33% 有评测设计偏差，不完全等于模型能力差距。",
+    "核心任务完成类断言（文案来源、计划具体性、页面实现、索引同步）在两组都基本通过：仓库里的 AI_SPEC/UI_SPEC/静态稿已经很完整，基线不靠 skill 也能做得不错。",
+    "skill 明显改善的是流程闭环：规格同步（eval-0 升 UI_SPEC 并记 DC-03）、设计令牌纪律（eval-2 基线写入了硬编码 rgba）、自带检查脚本（eval-2 基线只能自建检查）、项目记忆（eval-0/eval-2）。",
+    "时间：with skill 288±14s，without 291±107s。skill 没有增加平均耗时，但显著降低了方差——基线在简单文案任务上 167s，在规划/新增页面上 353s。",
+    "Token：with skill 123k±13k，without 123k±41k。平均几乎相同，skill 更稳定。",
+    "每个 eval 每种配置只跑了 1 次；stddev 是跨 3 个 eval 的，不是重复运行的方差。不要把它当成统计显著性。",
+    "范围纪律存在取舍：eval-0 基线更克制（只改按钮与生成器，不升 UI_SPEC 版本）；skill 把「其他不要动」扩展成了规格同步。是否更好取决于用户此刻想要「最小改动」还是「规格不留债」。"
+  ]
+}

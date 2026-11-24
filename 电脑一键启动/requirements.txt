@@ -1,0 +1,12 @@
+# 电脑一键启动依赖（Python 3.12+）
+
+# 核心协议层（协议/7.3.92）只用 Python 标准库，无需额外安装。
+#
+# Pillow：AMap 瓦片底图（路线编辑器 / 锚点编辑器）。缺失时自动回退本地矢量底图。
+pillow>=10.0
+
+# 自动极验（Geetest v4）走 Node + Playwright：
+#   cd 协议/7.3.92/login
+#   npm install                 # 仓库已带 node_modules，可跳过
+#   python -m playwright install chromium
+# Node 不在 PATH 时，把完整路径写进 config.json 的 node_path。

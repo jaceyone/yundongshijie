@@ -1,0 +1,24 @@
+# 真实账号密码，绝不提交
+config.json
+config_b.json
+
+# 登录会话（含 token）与运行日志、本机设备标识
+session*.json
+logs/
+device_id
+
+# 手动路线库（含真实校园坐标，只留本地）
+route_library.json
+route_library.json.tmp
+route_history.jsonl
+
+# 取点锚点池（含真实校园坐标，只留本地）
+anchor_points.json
+anchor_points.json.tmp
+
+# AMap 瓦片缓存
+cache/
+
+# Python 缓存
+__pycache__/
+*.pyc

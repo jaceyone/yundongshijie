@@ -1,0 +1,34 @@
+# ===== 账号 / 会话 / 本机设备：绝不入库 =====
+项目记忆.md
+电脑一键启动/config.json
+电脑一键启动/config_b.json
+电脑一键启动/config.json.bak-*
+电脑一键启动/session*.json
+电脑一键启动/device_id
+电脑一键启动/logs/
+电脑一键启动/cache/
+
+# ===== 真实校园坐标数据：只留本地 =====
+电脑一键启动/route_library.json
+电脑一键启动/route_library.json.bak-*
+电脑一键启动/route_history.jsonl
+电脑一键启动/anchor_points.json
+电脑一键启动/*.tmp
+
+# ===== Python / IDE =====
+__pycache__/
+*.pyc
+.idea/
+.venv/
+.pytest_cache/
+
+# ===== 可执行文件与安装包：按发布要求不入库 =====
+*.exe
+*.msi
+dist/
+build/
+*.spec
+
+# ===== 逆向原始资料：体积过大，不入库 =====
+_analysis/
+原始脱壳资料/

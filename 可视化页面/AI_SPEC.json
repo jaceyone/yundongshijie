@@ -1,0 +1,3441 @@
+{
+  "meta": {
+    "document": "AI_SPEC",
+    "name": "CampusRun Console",
+    "specVersion": "1.0.0",
+    "status": "approved",
+    "decision": "A",
+    "decisionDefinition": "Keep the full UI design, label every feature as existing/adapter/new, and list assumptions and risks.",
+    "date": "2026-11-04",
+    "humanDoc": "方案说明.md",
+    "sourceProject": "../协议/7.3.92",
+    "targetPlatform": "android",
+    "delivery": "apk",
+    "language": "zh-CN",
+    "purpose": "Implement a local Android control console for the 7.3.92 protocol suite. Vue3 renders the UI in a WebView; Kotlin hosts the native bridge; Chaquopy runs Python 3.12 in-process; Python executes the protocol. No backend service, no listening port.",
+    "uiStructureSource": "UI设计说明.md 2.0.0",
+    "uiStructureStatus": "superseded",
+    "uiStructureChangedAt": "2026-11-06",
+    "uiStructureNote": "navigation / screens / repoLayout 仍保留 4 Tab / 7 页 / TokenImportPage 的旧结构，供协议与功能追溯；页面结构与交互以 UI设计说明.md 2.0.0 为准（3 Tab / 6 页）。实现契约见 UI实现规格.md。"
+  },
+  "decisions": [
+    "Android only; iOS is out of scope.",
+    "Deliver an installable APK; the UI is a Vue3 app rendered by Android WebView.",
+    "No backend, no local HTTP server, no Termux, no PC dependency.",
+    "Login uses an in-app manual GeeTest v4 slider rendered in WebView.",
+    "First release covers login/account/profile, policy/fence/checkpoints, and the full run chain.",
+    "History list, calendar, ads, ranks, multi-account, automatic captcha, and iOS are not in v1.",
+    "Visual direction defaults to a dark task-console theme.",
+    "Every feature must be labeled existing, adapter, or new in this spec and in the human doc."
+  ],
+  "goals": [
+    "Operate the 7.3.92 protocol from a mobile UI instead of CLI flags.",
+    "Run entirely on the Android device with no backend service.",
+    "Complete login, token management, and profile retrieval.",
+    "Display run rules, valid time windows, face-check status, geofences, and official checkpoints.",
+    "Configure distance and duration, preview the synthesized route without network writes, then execute the full chain with staged progress.",
+    "Show rrid, validity, metrics, signature summary, OBS status, and support recheck and trace export.",
+    "Keep the CLI working unchanged."
+  ],
+  "nonGoals": [
+    "No history list, calendar, ads, ranks, or multi-account in v1.",
+    "No server-side account pooling, proxy, or cloud sync.",
+    "No iOS build.",
+    "No automatic GeeTest solving in v1.",
+    "No real map tiles; trajectory is rendered as a self-contained SVG.",
+    "No background service; the run must stay in the foreground."
+  ],
+  "constraints": [
+    "Python must be 3.12 because running/client.py uses nested-quote f-strings at lines 184 and 225.",
+    "Chaquopy 3.12 supports only arm64-v8a and x86_64; no 32-bit ABIs.",
+    "Browser-only execution cannot work: CORS blocks signed requests and browsers cannot run CPython or Playwright.",
+    "Capacitor https://localhost is a WebViewAssetLoader virtual origin, not a listening server.",
+    "The app still needs internet access for the target API, OBS, and GeeTest.",
+    "Do not embed secrets, salts, captcha IDs, tokens, or passwords in docs or frontend constants.",
+    "The repository path contains Chinese characters; build with UTF-8-safe settings or an ASCII build path.",
+    "All bridge methods must be whitelisted and validate inputs on both Kotlin and Python sides."
+  ],
+  "platform": {
+    "os": "Android",
+    "minSdk": 24,
+    "targetSdk": 35,
+    "compileSdk": 35,
+    "abis": [
+      "arm64-v8a",
+      "x86_64"
+    ],
+    "packageName": "com.local.campusrunconsole",
+    "appName": "校园跑控制台",
+    "versionName": "0.1.0",
+    "versionCode": 1,
+    "installMode": "sideload",
+    "signing": {
+      "debug": "Gradle debug keystore, auto-signed",
+      "release": "Self-signed .jks keystore; back up the keystore and passwords"
+    }
+  },
+  "toolchain": {
+    "node": "22.x",
+    "jdk": "21",
+    "agp": "8.x",
+    "capacitor": "7.x",
+    "chaquopy": "17.1.0",
+    "python": "3.12",
+    "vue": "3.5.x",
+    "vite": "7.x",
+    "typescript": "5.x",
+    "pinia": "3.x",
+    "vueRouter": "4.x",
+    "echarts": "5.x",
+    "notes": [
+      "Pin exact versions at M0 after verifying Capacitor/AGP/Chaquopy compatibility.",
+      "Use hash routing to avoid WebView deep-link issues.",
+      "Do not use external fonts, CDNs, analytics, or crash reporting."
+    ]
+  },
+  "architecture": {
+    "layers": [
+      {
+        "id": "web",
+        "tech": "Vue 3 + TypeScript",
+        "runtime": "Android WebView",
+        "responsibilities": [
+          "Pages, forms, navigation, charts, SVG trajectory",
+          "Calls ProtocolBridge methods",
+          "Renders staged progress and errors"
+        ]
+      },
+      {
+        "id": "bridge-js",
+        "tech": "Capacitor JS proxy",
+        "runtime": "WebView",
+        "responsibilities": [
+          "Serialize method calls to native",
+          "Return Promises",
+          "Deliver native events to JS listeners"
+        ]
+      },
+      {
+        "id": "native",
+        "tech": "Kotlin ProtocolPlugin",
+        "runtime": "Android app process",
+        "responsibilities": [
+          "Whitelist and validate bridge methods",
+          "Run protocol work on a single-thread executor",
+          "Store token and device profile securely",
+          "Initialize Chaquopy and forward progress events"
+        ]
+      },
+      {
+        "id": "python-runtime",
+        "tech": "Chaquopy",
+        "runtime": "Android app process via JNI",
+        "responsibilities": [
+          "Embed CPython 3.12",
+          "Load app_bridge.py and the vendored protocol package",
+          "Convert Python values to Java/Kotlin values"
+        ]
+      },
+      {
+        "id": "protocol",
+        "tech": "Python 7.3.92 suite",
+        "runtime": "Android app process",
+        "responsibilities": [
+          "Login, profile, policy, fences, checkpoints",
+          "Trajectory synthesis, signatures, OBS upload, settlement, recheck",
+          "All outbound HTTPS requests"
+        ]
+      }
+    ],
+    "callChain": [
+      "Vue handler",
+      "Protocol.<method>()",
+      "Capacitor JS proxy",
+      "Kotlin ProtocolPlugin.<method>()",
+      "Chaquopy Python.getInstance().getModule('app_bridge')",
+      "app_bridge.<function>()",
+      "SportClient792 or subsystem client",
+      "HTTPS request"
+    ],
+    "eventChain": [
+      "Python event_callback(event)",
+      "Kotlin ProgressSink.onEvent(json)",
+      "notifyListeners('runProgress', payload)",
+      "JS Protocol.addListener('runProgress', cb)",
+      "Pinia run store",
+      "Vue StageStepper / LogConsole"
+    ],
+    "noServer": {
+      "listeningPorts": 0,
+      "localHttpServer": false,
+      "webOrigin": "https://localhost (WebViewAssetLoader virtual origin)",
+      "pythonTransport": "Chaquopy JNI in-process",
+      "outboundConnections": [
+        "Target API over HTTPS",
+        "GeeTest over HTTPS",
+        "Huawei OBS over HTTPS"
+      ],
+      "verification": [
+        "Run netstat/ss on the device or inspect the APK; there must be no listening socket owned by the app.",
+        "There is no FastAPI/Flask/Node server process.",
+        "Capacitor must not configure server.url."
+      ]
+    },
+    "responsibilities": [
+      {
+        "component": "Vue",
+        "does": "UI, input, preview, progress, errors",
+        "doesNot": "Protocol requests, Python execution, native storage"
+      },
+      {
+        "component": "Capacitor",
+        "does": "Package web assets, create WebView, provide JS-to-Kotlin bridge and plugin runtime",
+        "doesNot": "Know about Python or execute protocol logic"
+      },
+      {
+        "component": "Kotlin plugin",
+        "does": "Receive calls, validate params, thread dispatch, secure storage, call Python, emit events",
+        "doesNot": "Render UI or implement protocol crypto"
+      },
+      {
+        "component": "Chaquopy",
+        "does": "Run CPython in the app process and bridge Kotlin/Python values",
+        "doesNot": "Provide any network API or server"
+      },
+      {
+        "component": "Python",
+        "does": "Protocol, crypto, signatures, trajectory, OBS, settlement, recheck",
+        "doesNot": "Render UI or manage Android lifecycle"
+      }
+    ]
+  },
+  "repoLayout": {
+    "root": "可视化页面",
+    "docs": [
+      "方案说明.md",
+      "AI_SPEC.json"
+    ],
+    "scripts": [
+      "scripts/sync-protocol.(mjs|py)"
+    ],
+    "app": {
+      "root": "可视化页面/app",
+      "web": {
+        "packageJson": "package.json",
+        "viteConfig": "vite.config.ts",
+        "capacitorConfig": "capacitor.config.ts",
+        "indexHtml": "index.html",
+        "public": [
+          "public/gt4.js"
+        ],
+        "src": [
+          "src/main.ts",
+          "src/App.vue",
+          "src/router/index.ts",
+          "src/native/protocol.ts",
+          "src/native/mock.ts",
+          "src/stores/auth.ts",
+          "src/stores/policy.ts",
+          "src/stores/run.ts",
+          "src/stores/device.ts",
+          "src/stores/ui.ts",
+          "src/pages/LoginPage.vue",
+          "src/pages/TokenImportPage.vue",
+          "src/pages/ConsolePage.vue",
+          "src/pages/PolicyPage.vue",
+          "src/pages/RunSetupPage.vue",
+          "src/pages/RunningPage.vue",
+          "src/pages/ResultPage.vue",
+          "src/pages/SettingsPage.vue",
+          "src/components/AppShell.vue",
+          "src/components/BottomTabBar.vue",
+          "src/components/StatusBadge.vue",
+          "src/components/Metric.vue",
+          "src/components/StageStepper.vue",
+          "src/components/LogConsole.vue",
+          "src/components/RuleCard.vue",
+          "src/components/FenceList.vue",
+          "src/components/CheckpointList.vue",
+          "src/components/RouteCanvas.vue",
+          "src/components/SpeedChart.vue",
+          "src/components/StepChart.vue",
+          "src/components/CaptchaSheet.vue",
+          "src/components/ConfirmSheet.vue",
+          "src/components/ErrorPanel.vue",
+          "src/components/EmptyState.vue",
+          "src/styles/tokens.css",
+          "src/styles/global.css",
+          "src/types/protocol.ts"
+        ]
+      },
+      "android": {
+        "gradle": "android/app/build.gradle",
+        "manifest": "android/app/src/main/AndroidManifest.xml",
+        "kotlin": [
+          "android/app/src/main/java/<pkg>/MainActivity.kt",
+          "android/app/src/main/java/<pkg>/ProtocolPlugin.kt",
+          "android/app/src/main/java/<pkg>/SecureStore.kt",
+          "android/app/src/main/java/<pkg>/DeviceProfile.kt",
+          "android/app/src/main/java/<pkg>/ProgressSink.kt"
+        ],
+        "pythonRoot": "android/app/src/main/python",
+        "python": [
+          "app_bridge.py",
+          "sport_client.py",
+          "core/",
+          "login/",
+          "profile/",
+          "policy/",
+          "telemetry/",
+          "running/",
+          "history/",
+          "ads/"
+        ],
+        "assets": "android/app/src/main/assets/public"
+      },
+      "sync": {
+        "script": "scripts/sync-protocol.(mjs|py)",
+        "source": "../协议/7.3.92",
+        "destination": "android/app/src/main/python",
+        "include": [
+          "core/",
+          "login/",
+          "profile/",
+          "policy/",
+          "telemetry/",
+          "running/",
+          "history/",
+          "ads/",
+          "sport_client.py"
+        ],
+        "exclude": [
+          "__pycache__/",
+          "*.pyc",
+          "login/node_modules/",
+          "login/package.json",
+          "login/package-lock.json",
+          "login/geetest_solver.js",
+          "login/assets/",
+          "login/cli.py",
+          "test_*.py",
+          "*_test.py"
+        ],
+        "copy": [
+          {
+            "from": "协议/7.3.92/login/assets/gt4.js",
+            "to": "可视化页面/app/public/gt4.js"
+          }
+        ],
+        "retain": [
+          "login/captcha.py must remain because login/client.py imports GeetestV4Solver at module load; the app must never call solver.solve()."
+        ]
+      }
+    },
+    "uiStructureStatus": "superseded",
+    "uiStructureNote": "repoLayout 仍保留 ConsolePage / RunSetupPage / TokenImportPage 旧结构；页面结构以 UI设计说明.md 2.0.0 为准。"
+  },
+  "bridgeApi": {
+    "pluginName": "Protocol",
+    "registration": "MainActivity.registerPlugin(ProtocolPlugin::class.java)",
+    "conventions": {
+      "dataFormat": "JSON-serializable objects only",
+      "naming": "camelCase in JS/Kotlin; snake_case in Python",
+      "timestamps": "Unix epoch milliseconds unless the field name ends with Sec",
+      "distance": "meters",
+      "duration": "seconds",
+      "pace": "seconds per kilometer when computed by the UI",
+      "errors": "Business errors resolve with {ok:false,error}; unexpected failures reject with a code and message",
+      "threading": "All Python calls run on a single-thread executor; JS never blocks",
+      "size": "Downsample large point arrays before returning to JS; keep full artifacts in Python memory"
+    },
+    "methods": [
+      {
+        "name": "initialize",
+        "status": "new",
+        "jsSignature": "initialize(): Promise<{ok:true,data:InitResult}>",
+        "pythonFunction": "app_bridge.initialize(device_config_json)",
+        "params": [],
+        "returns": {
+          "hasSession": "boolean",
+          "uid": "string|null",
+          "unid": "string|null",
+          "profile": "UserProfile|null",
+          "deviceId": "string",
+          "appVersion": "string",
+          "protocolVersion": "string",
+          "pythonVersion": "string"
+        },
+        "sideEffects": [
+          "Load token and device profile from SecureStore",
+          "If a token exists, create SportClient792 without validating it",
+          "Do not perform network requests"
+        ],
+        "errors": [
+          "INIT_FAILED",
+          "INTERNAL"
+        ],
+        "notes": [
+          "Called once at app boot.",
+          "Device profile must be stable across launches."
+        ]
+      },
+      {
+        "name": "prepareLogin",
+        "status": "adapter",
+        "jsSignature": "prepareLogin(options:{username:string}): Promise<{ok:true,data:{sessionUuid:string,needCaptcha:boolean,captchaId:string}}>",
+        "pythonFunction": "app_bridge.prepare_login(username)",
+        "params": [
+          {
+            "name": "username",
+            "type": "string",
+            "required": true
+          }
+        ],
+        "returns": {
+          "sessionUuid": "string",
+          "needCaptcha": "boolean",
+          "captchaId": "string"
+        },
+        "sideEffects": [
+          "POST /api/v65/security/checkGeeUse",
+          "Creates a LoginClient with the persisted device_config"
+        ],
+        "errors": [
+          "INVALID_INPUT",
+          "NETWORK",
+          "SERVER",
+          "INTERNAL"
+        ],
+        "notes": [
+          "check_gee_use data:true means captcha can be skipped.",
+          "captchaId is read at runtime from login/config.py; do not hardcode it in the frontend."
+        ]
+      },
+      {
+        "name": "submitLogin",
+        "status": "adapter",
+        "jsSignature": "submitLogin(options:{username:string,password:string,sessionUuid:string,geetest?:{lotNumber:string,captchaOutput:string,passToken:string,genTime:string}}): Promise<{ok:true,data:{profile:UserProfile}}>",
+        "pythonFunction": "app_bridge.submit_login(username,password,session_uuid,geetest_json)",
+        "params": [
+          {
+            "name": "username",
+            "type": "string",
+            "required": true
+          },
+          {
+            "name": "password",
+            "type": "string",
+            "required": true,
+            "notes": "Kept in memory only; never logged or persisted"
+          },
+          {
+            "name": "sessionUuid",
+            "type": "string",
+            "required": true
+          },
+          {
+            "name": "geetest",
+            "type": "object|null",
+            "required": false
+          }
+        ],
+        "returns": {
+          "profile": "UserProfile"
+        },
+        "sideEffects": [
+          "If geetest is present, POST /api/v70270/security/geevalidate",
+          "POST /api/v70100/login",
+          "Store uid, unid, token in SecureStore",
+          "Create SportClient792 and set credentials"
+        ],
+        "errors": [
+          "CAPTCHA_REQUIRED",
+          "CAPTCHA_FAILED",
+          "AUTH_FAILED",
+          "NETWORK",
+          "SERVER",
+          "INTERNAL"
+        ],
+        "notes": [
+          "Do not call LoginClient.login(); it invokes GeetestV4Solver and subprocess/Playwright.",
+          "Order: gee_validate then submit_login.",
+          "Password must never appear in logs or error payloads."
+        ]
+      },
+      {
+        "name": "getProfile",
+        "status": "existing",
+        "jsSignature": "getProfile(): Promise<{ok:true,data:UserProfileDetails}>",
+        "pythonFunction": "app_bridge.get_profile()",
+        "params": [],
+        "returns": {
+          "profile": "UserProfileDetails"
+        },
+        "sideEffects": [
+          "GET /api/v70390/user/info"
+        ],
+        "errors": [
+          "AUTH_REQUIRED",
+          "AUTH_EXPIRED",
+          "NETWORK",
+          "SERVER"
+        ],
+        "notes": [
+          "CLI equivalent: --profile."
+        ]
+      },
+      {
+        "name": "getSemesterProgress",
+        "status": "adapter",
+        "jsSignature": "getSemesterProgress(options:{mode:1|6}): Promise<{ok:true,data:SemesterInfo}>",
+        "pythonFunction": "app_bridge.get_semester_progress(mode)",
+        "params": [
+          {
+            "name": "mode",
+            "type": "1|6",
+            "required": true
+          }
+        ],
+        "returns": {
+          "semester": "SemesterInfo"
+        },
+        "sideEffects": [
+          "POST /api/v41/running/getPersonalSemesterInfo"
+        ],
+        "errors": [
+          "AUTH_REQUIRED",
+          "AUTH_EXPIRED",
+          "NETWORK",
+          "SERVER"
+        ],
+        "notes": [
+          "Method exists in SportClient792 but is not exposed by the CLI.",
+          "Treat response shape as unverified until tested on a real account."
+        ]
+      },
+      {
+        "name": "getPolicy",
+        "status": "existing",
+        "jsSignature": "getPolicy(options:{mode:1|6}): Promise<{ok:true,data:RunRule}>",
+        "pythonFunction": "app_bridge.get_policy(mode)",
+        "params": [
+          {
+            "name": "mode",
+            "type": "1|6",
+            "required": true
+          }
+        ],
+        "returns": {
+          "rule": "RunRule"
+        },
+        "sideEffects": [
+          "POST /api/v70103/runModePolicy"
+        ],
+        "errors": [
+          "AUTH_REQUIRED",
+          "AUTH_EXPIRED",
+          "NETWORK",
+          "SERVER",
+          "RULE_FAILED"
+        ],
+        "notes": [
+          "CLI equivalent: --rules --mode."
+        ]
+      },
+      {
+        "name": "getFences",
+        "status": "existing",
+        "jsSignature": "getFences(): Promise<{ok:true,data:GeoFenceArea[]}>",
+        "pythonFunction": "app_bridge.get_fences()",
+        "params": [],
+        "returns": {
+          "fences": "GeoFenceArea[]"
+        },
+        "sideEffects": [
+          "POST /api/v1/getGeoFenceForRun"
+        ],
+        "errors": [
+          "AUTH_REQUIRED",
+          "AUTH_EXPIRED",
+          "NETWORK",
+          "SERVER",
+          "FENCE_FAILED"
+        ],
+        "notes": [
+          "Fence polygon points are in GeoFenceArea.polygon_points.",
+          "Fence check_points may be legacy; official live points come from getCheckpoints."
+        ]
+      },
+      {
+        "name": "getCheckpoints",
+        "status": "existing",
+        "jsSignature": "getCheckpoints(options:{fenceId:number,mode:1,uuid?:string}): Promise<{ok:true,data:{points:GeoPoint[],areaId:number,error?:string}}>",
+        "pythonFunction": "app_bridge.get_checkpoints(fence_id,mode,uuid_str)",
+        "params": [
+          {
+            "name": "fenceId",
+            "type": "number",
+            "required": true
+          },
+          {
+            "name": "mode",
+            "type": "1",
+            "required": true,
+            "notes": "Only scoring runs (mode 1) support checkpoint queries."
+          },
+          {
+            "name": "uuid",
+            "type": "string|null",
+            "required": false
+          }
+        ],
+        "returns": {
+          "points": "GeoPoint[]",
+          "areaId": "number",
+          "error": "string|null"
+        },
+        "sideEffects": [
+          "POST /api/v560/get/1/distance/{distance_m}",
+          "May allocate a run uuid and checkpoints; does not upload a record"
+        ],
+        "errors": [
+          "CHECKPOINT_FAILED",
+          "MULTI_RUN_AREA",
+          "NO_FENCE",
+          "AUTH_REQUIRED"
+        ],
+        "notes": [
+          "CLI equivalent: --checkpoints.",
+          "If school has multiple run areas, surface a selector; do not silently pick one.",
+          "Do not call for mode 6."
+        ]
+      },
+      {
+        "name": "previewRun",
+        "status": "adapter",
+        "jsSignature": "previewRun(options:{mode:1|6,distanceM:number,timeSec:number,fenceId?:number,uuid?:string}): Promise<{ok:true,data:RunPreview}>",
+        "pythonFunction": "app_bridge.preview_run(mode,distance_m,time_sec,fence_id,uuid_str)",
+        "params": [
+          {
+            "name": "mode",
+            "type": "1|6",
+            "required": true
+          },
+          {
+            "name": "distanceM",
+            "type": "number",
+            "required": true,
+            "constraints": ">0; integer meters"
+          },
+          {
+            "name": "timeSec",
+            "type": "number",
+            "required": true,
+            "constraints": ">0; integer seconds"
+          },
+          {
+            "name": "fenceId",
+            "type": "number|null",
+            "required": false
+          },
+          {
+            "name": "uuid",
+            "type": "string|null",
+            "required": false
+          }
+        ],
+        "returns": {
+          "preparedId": "string",
+          "mode": "1|6",
+          "distanceM": "number",
+          "timeSec": "number",
+          "totalSteps": "number",
+          "startTimeMs": "number",
+          "stopTimeMs": "number",
+          "rule": "RunRule",
+          "fence": "GeoFenceArea|null",
+          "checkpoints": "GeoPoint[]",
+          "gpsPoints": "GpsPoint[]",
+          "fivePoints": "FivePoint[]",
+          "speedBuckets": "SpeedBucket[]",
+          "stepBuckets": "StepBucket[]",
+          "signature": "SignatureSummary",
+          "payload": {
+            "allLocJsonBytes": "number",
+            "obsPayloadBytes": "number",
+            "objectKey": "string"
+          },
+          "warnings": "Warning[]",
+          "dryRun": "boolean",
+          "networkWrites": "false"
+        },
+        "sideEffects": [
+          "May read run policy, geofences, and official checkpoints",
+          "No OBS temporary URL request",
+          "No OBS PUT",
+          "No save/record",
+          "No get_one_record"
+        ],
+        "errors": [
+          "RULE_FAILED",
+          "FENCE_FAILED",
+          "CHECKPOINT_FAILED",
+          "MULTI_RUN_AREA",
+          "INVALID_INPUT",
+          "INTERNAL"
+        ],
+        "notes": [
+          "Timestamps are examples based on current server time; executeRun re-prepares immediately before submission.",
+          "Return a downsampled gpsPoints array to JS; keep the full array in PreparedRun.",
+          "SignatureSummary must not expose the salt or full canonical string with secrets; expose field names and masked values where needed."
+        ]
+      },
+      {
+        "name": "executeRun",
+        "status": "adapter",
+        "jsSignature": "executeRun(options:{mode:1|6,distanceM:number,timeSec:number,dryRun?:boolean,preparedId?:string}): Promise<{ok:true,data:RunResult}>",
+        "pythonFunction": "app_bridge.execute_run(mode,distance_m,time_sec,dry_run,prepared_id)",
+        "params": [
+          {
+            "name": "mode",
+            "type": "1|6",
+            "required": true
+          },
+          {
+            "name": "distanceM",
+            "type": "number",
+            "required": true
+          },
+          {
+            "name": "timeSec",
+            "type": "number",
+            "required": true
+          },
+          {
+            "name": "dryRun",
+            "type": "boolean",
+            "required": false,
+            "default": false
+          },
+          {
+            "name": "preparedId",
+            "type": "string|null",
+            "required": false,
+            "notes": "If provided, reuse cached preparation when it is still fresh; otherwise re-prepare."
+          }
+        ],
+        "returns": {
+          "runId": "string",
+          "success": "boolean",
+          "rrid": "number|null",
+          "isValid": "boolean|null",
+          "totalDistance": "number",
+          "totalTime": "number",
+          "avgPaceSecPerKm": "number",
+          "stages": "StageEvent[]",
+          "obs": "ObsResult|null",
+          "signature": "SignatureSummary|null",
+          "recheck": "RunRecordDetail|null",
+          "warnings": "Warning[]",
+          "traceId": "string"
+        },
+        "sideEffects": [
+          "prepare_run",
+          "POST /api/obs/temporary/url",
+          "PUT signed OBS URL",
+          "POST /api/v70260/runnings/save/record",
+          "POST /api/v70320/runnings/get_one_record",
+          "GET /api/v70340/activity/rundetail/config",
+          "Telemetry startup/pv and datacollection/pv when unid is present"
+        ],
+        "errors": [
+          "RULE_FAILED",
+          "CHECKPOINT_FAILED",
+          "OBS_URL_FAILED",
+          "OBS_PUT_FAILED",
+          "SAVE_FAILED",
+          "RECHECK_UNKNOWN",
+          "CANCELLED",
+          "CANCEL_TOO_LATE",
+          "AUTH_REQUIRED",
+          "AUTH_EXPIRED",
+          "NETWORK",
+          "INTERNAL"
+        ],
+        "notes": [
+          "dryRun=true stops after prepare and local consistency checks; no write requests.",
+          "Events are emitted via runProgress and runLog.",
+          "After OBS starts, cancellation is rejected.",
+          "If OBS succeeds but save/record fails, result must show a partial state.",
+          "If recheck fails, isValid must be null and the UI must not show success."
+        ]
+      },
+      {
+        "name": "cancelRun",
+        "status": "new",
+        "jsSignature": "cancelRun(): Promise<{ok:true,data:{cancelled:boolean,stage:string}}>",
+        "pythonFunction": "app_bridge.cancel_run()",
+        "params": [],
+        "returns": {
+          "cancelled": "boolean",
+          "stage": "string"
+        },
+        "sideEffects": [
+          "Sets a cooperative cancel event checked before OBS and before settle"
+        ],
+        "errors": [
+          "CANCEL_TOO_LATE",
+          "NO_ACTIVE_RUN"
+        ],
+        "notes": [
+          "Cannot abort an in-flight urllib request.",
+          "After OBS starts, return CANCEL_TOO_LATE."
+        ]
+      },
+      {
+        "name": "recheckRecord",
+        "status": "existing",
+        "jsSignature": "recheckRecord(options:{rrid:number}): Promise<{ok:true,data:RunRecordDetail}>",
+        "pythonFunction": "app_bridge.recheck_record(rrid)",
+        "params": [
+          {
+            "name": "rrid",
+            "type": "number",
+            "required": true
+          }
+        ],
+        "returns": {
+          "record": "RunRecordDetail"
+        },
+        "sideEffects": [
+          "POST /api/v70320/runnings/get_one_record"
+        ],
+        "errors": [
+          "RECHECK_UNKNOWN",
+          "AUTH_REQUIRED",
+          "AUTH_EXPIRED",
+          "NETWORK"
+        ],
+        "notes": [
+          "A failed recheck is unknown, not valid."
+        ]
+      },
+      {
+        "name": "getRuntimeInfo",
+        "status": "new",
+        "jsSignature": "getRuntimeInfo(): Promise<{ok:true,data:RuntimeInfo}>",
+        "pythonFunction": "app_bridge.get_runtime_info()",
+        "params": [],
+        "returns": {
+          "appVersion": "string",
+          "protocolVersion": "string",
+          "pythonVersion": "string",
+          "deviceId": "string",
+          "packageName": "string"
+        },
+        "sideEffects": [],
+        "errors": [
+          "INTERNAL"
+        ],
+        "notes": [
+          "Used by Settings and debug panels."
+        ]
+      },
+      {
+        "name": "logout",
+        "status": "new",
+        "jsSignature": "logout(): Promise<{ok:true}>",
+        "pythonFunction": "app_bridge.logout()",
+        "params": [],
+        "returns": {
+          "ok": "true"
+        },
+        "sideEffects": [
+          "Clear uid, unid, token from SecureStore",
+          "Drop SportClient792 session",
+          "Keep device ID"
+        ],
+        "errors": [
+          "INTERNAL"
+        ],
+        "notes": [
+          "Do not clear the device profile unless the user explicitly resets it."
+        ]
+      },
+      {
+        "name": "exportTrace",
+        "status": "new",
+        "jsSignature": "exportTrace(): Promise<{ok:true,data:{filename:string,json:string}}>",
+        "pythonFunction": "app_bridge.export_trace()",
+        "params": [],
+        "returns": {
+          "filename": "string",
+          "json": "string"
+        },
+        "sideEffects": [
+          "Serializes the current run trace; no network"
+        ],
+        "errors": [
+          "NO_TRACE",
+          "INTERNAL"
+        ],
+        "notes": [
+          "Redact token, password, captcha payload, full device ID, and secrets.",
+          "Vue can use the system share sheet or a download path."
+        ]
+      }
+    ],
+    "events": [
+      {
+        "name": "runProgress",
+        "payload": {
+          "runId": "string",
+          "stage": "time-sync|policy-fence|trajectory|obs|settle|recheck",
+          "status": "started|succeeded|failed|skipped",
+          "message": "string",
+          "percent": "number 0-100",
+          "ts": "number",
+          "data": "object (optional)"
+        },
+        "notes": [
+          "Emit on every stage transition.",
+          "Percent should be monotonic within a run."
+        ]
+      },
+      {
+        "name": "runLog",
+        "payload": {
+          "runId": "string",
+          "level": "info|warn|error",
+          "message": "string",
+          "ts": "number"
+        },
+        "notes": [
+          "Redact secrets before emitting."
+        ]
+      },
+      {
+        "name": "authExpired",
+        "payload": {
+          "message": "string"
+        },
+        "notes": [
+          "Emitted when a request returns an authentication failure.",
+          "Vue clears the session and redirects to /login."
+        ]
+      }
+    ],
+    "errorEnvelope": {
+      "ok": false,
+      "error": {
+        "code": "string",
+        "message": "string",
+        "detail": "string|null",
+        "retryable": "boolean"
+      }
+    }
+  },
+  "pythonChanges": {
+    "newFiles": [
+      {
+        "path": "android/app/src/main/python/app_bridge.py",
+        "purpose": "Whitelisted bridge functions, session state, JSON conversion, progress sink"
+      },
+      {
+        "path": "android/app/src/main/python/app_bridge_models.py",
+        "purpose": "PreparedRun, SubmissionArtifacts, RunEvent, Warning, and serialization helpers"
+      }
+    ],
+    "modifiedFiles": [
+      {
+        "path": "协议/7.3.92/running/client.py",
+        "changes": [
+          "Split execute_full_run into prepare_run and submit_prepared_run.",
+          "Add event_callback and cancel_event parameters with defaults.",
+          "Keep execute_full_run behavior and signature compatible.",
+          "Emit structured stage/log events.",
+          "Expose OBS status and prepared artifacts in the result/raw payload."
+        ]
+      },
+      {
+        "path": "协议/7.3.92/running/builder.py",
+        "changes": [
+          "Add build_submission_artifacts returning save_record, obs_payload, object_key, sign_map, signature, original_sign.",
+          "Keep build_submission_payload as a compatibility wrapper returning the original 3-tuple."
+        ]
+      },
+      {
+        "path": "协议/7.3.92/running/models.py",
+        "changes": [
+          "Add PreparedRun, SubmissionArtifacts, RunEvent, Warning, ObsResult if not placed in app_bridge_models.py.",
+          "Extend RunningSubmissionResult with optional fields for stages, obs, signature, recheck, trace_id, warnings."
+        ]
+      },
+      {
+        "path": "协议/7.3.92/sport_client.py",
+        "changes": [
+          "No breaking changes required.",
+          "Pass device_config through to subsystem clients.",
+          "Optionally add prepare_run/submit_prepared_run wrappers."
+        ]
+      }
+    ],
+    "functionSignatures": [
+      {
+        "file": "running/client.py",
+        "signature": "def prepare_run(self, target_distance_m: int = 3000, target_time_sec: int = 1060, sport_type: int = 1, fence_id: int | None = None, uuid_str: str | None = None, rule: RunRule | None = None, fences: list[GeoFenceArea] | None = None, event_callback: Callable[[dict], None] | None = None) -> PreparedRun"
+      },
+      {
+        "file": "running/client.py",
+        "signature": "def submit_prepared_run(self, prepared: PreparedRun, event_callback: Callable[[dict], None] | None = None, cancel_event: threading.Event | None = None) -> RunningSubmissionResult"
+      },
+      {
+        "file": "running/client.py",
+        "signature": "def execute_full_run(self, target_distance_m: int = 3000, target_time_sec: int = 1060, sport_type: int = 1, progress_callback: Callable[[str], None] | None = None, event_callback: Callable[[dict], None] | None = None, dry_run: bool = False) -> RunningSubmissionResult"
+      },
+      {
+        "file": "running/builder.py",
+        "signature": "def build_submission_artifacts(self, total_distance_m: int, total_time_sec: int, total_steps: int, start_time_ms: int, stop_time_ms: int, gps_points: list[GpsPoint], five_points: list[FivePoint], sel_distance_m: int = 2000, sel_run_time_s: int = 0, calorie: int = 135, avg_power: int = 150, run_area_id: int = -1, geo_fences_json: str | None = None, policy: int = 1) -> SubmissionArtifacts"
+      }
+    ],
+    "newDataclasses": [
+      {
+        "name": "PreparedRun",
+        "fields": [
+          "prepared_id: str",
+          "mode: int",
+          "distance_m: int",
+          "time_sec: int",
+          "total_steps: int",
+          "start_time_ms: int",
+          "stop_time_ms: int",
+          "rule: dict",
+          "fence: dict | None",
+          "checkpoints: list[dict]",
+          "gps_points: list[GpsPoint]",
+          "five_points: list[FivePoint]",
+          "speed_buckets: list[SpeedBucket]",
+          "step_buckets: list[StepBucket]",
+          "sign_map: dict",
+          "signature: str",
+          "original_sign: str",
+          "save_record: dict",
+          "obs_payload: dict",
+          "object_key: str",
+          "warnings: list[Warning]",
+          "created_at_ms: int"
+        ]
+      },
+      {
+        "name": "SubmissionArtifacts",
+        "fields": [
+          "save_record: dict",
+          "obs_payload: dict",
+          "object_key: str",
+          "sign_map: dict",
+          "signature: str",
+          "original_sign: str"
+        ]
+      },
+      {
+        "name": "RunEvent",
+        "fields": [
+          "type: str ('stage'|'log')",
+          "stage: str | None",
+          "status: str | None",
+          "level: str | None",
+          "message: str",
+          "ts: int",
+          "data: dict | None"
+        ]
+      },
+      {
+        "name": "Warning",
+        "fields": [
+          "code: str",
+          "message: str",
+          "severity: str ('info'|'warn'|'danger')"
+        ]
+      },
+      {
+        "name": "ObsResult",
+        "fields": [
+          "bucket: str",
+          "object_key: str",
+          "put_status: int | None",
+          "put_ok: bool",
+          "message: str",
+          "bytes: int | None"
+        ]
+      }
+    ],
+    "stageIds": [
+      "time-sync",
+      "policy-fence",
+      "trajectory",
+      "obs",
+      "settle",
+      "recheck"
+    ],
+    "eventSchema": {
+      "type": "stage|log",
+      "stage": "time-sync|policy-fence|trajectory|obs|settle|recheck|null",
+      "status": "started|succeeded|failed|skipped|null",
+      "level": "info|warn|error|null",
+      "message": "string",
+      "ts": "Unix epoch milliseconds",
+      "data": "object|null"
+    },
+    "warnings": [
+      "FACE_CHECK_ENABLED",
+      "SPEED_OUT_OF_RANGE",
+      "STEP_OUT_OF_RANGE",
+      "MULTI_RUN_AREA",
+      "CHECKPOINT_FALLBACK",
+      "TIME_BACKFILL",
+      "TOKEN_SOON_EXPIRED",
+      "REAL_DEVICE_FINGERPRINT"
+    ],
+    "loginOrchestration": {
+      "steps": [
+        "session_uuid = str(uuid.uuid4())",
+        "login_client.check_gee_use(username, session_uuid)",
+        "If needCaptcha, wait for the JS geetest payload; construct GeetestResult(captcha_id, lot_number, pass_token, gen_time, captcha_output)",
+        "login_client.gee_validate(gt, session_uuid, username)",
+        "login_client.submit_login(username, password, session_uuid)",
+        "Create SportClient792(uid=user.uid, token=user.token, unid=user.unid, device_config=device_config)",
+        "Persist uid/unid/token in SecureStore",
+        "Clear the in-memory password"
+      ],
+      "forbidden": [
+        "Do not call LoginClient.login().",
+        "Do not call GeetestV4Solver.solve().",
+        "Do not log password, token, or captcha payload."
+      ]
+    },
+    "deviceConfig": {
+      "source": "Kotlin DeviceProfile.kt",
+      "persistKey": "device.profile",
+      "fields": [
+        "Accept",
+        "Content-Type",
+        "appVersion",
+        "physicPixel",
+        "logicPixel",
+        "isRoot",
+        "osType",
+        "cpuModel",
+        "deviceName",
+        "DeviceId",
+        "osVersion",
+        "User-Agent"
+      ],
+      "rules": [
+        "Generate DeviceId once and persist it in EncryptedSharedPreferences.",
+        "Pass the same device_config to SportClient792 and LoginClient.",
+        "Do not regenerate DeviceId on every launch.",
+        "Do not expose the full DeviceId in UI or logs; show a masked prefix."
+      ]
+    },
+    "vendoring": {
+      "script": "scripts/sync-protocol.(mjs|py)",
+      "source": "../协议/7.3.92",
+      "destination": "android/app/src/main/python",
+      "include": [
+        "core/",
+        "login/",
+        "profile/",
+        "policy/",
+        "telemetry/",
+        "running/",
+        "history/",
+        "ads/",
+        "sport_client.py"
+      ],
+      "exclude": [
+        "__pycache__/",
+        "*.pyc",
+        "login/node_modules/",
+        "login/package.json",
+        "login/package-lock.json",
+        "login/geetest_solver.js",
+        "login/assets/",
+        "login/cli.py",
+        "test_*.py",
+        "*_test.py"
+      ],
+      "copy": [
+        {
+          "from": "协议/7.3.92/login/assets/gt4.js",
+          "to": "app/public/gt4.js"
+        }
+      ],
+      "manifest": "Write a SHA-256 manifest of copied files for traceability."
+    },
+    "compatibility": [
+      "CLI must continue to work with the old execute_full_run signature and progress_callback.",
+      "New parameters must have defaults.",
+      "build_submission_payload must keep its 3-tuple return.",
+      "Python 3.12 syntax must not be downgraded; pin Chaquopy to 3.12.",
+      "Do not import or call Playwright, Node, or subprocess in the app path."
+    ]
+  },
+  "dataModels": {
+    "typescript": {
+      "UserProfile": {
+        "uid": "number",
+        "unid": "number",
+        "name": "string",
+        "username": "string",
+        "campusName": "string",
+        "campusId": "string",
+        "depart": "string",
+        "gradeClass": "string",
+        "sex": "string",
+        "token": "string (never render; masked only)"
+      },
+      "UserProfileDetails": {
+        "uid": "number",
+        "unid": "number",
+        "name": "string",
+        "username": "string",
+        "studentId": "string",
+        "campusName": "string",
+        "campusId": "string",
+        "depart": "string",
+        "gradeClass": "string",
+        "major": "string",
+        "sex": "string",
+        "phone": "string (mask before display)"
+      },
+      "ServerTime": {
+        "serverTimestampMs": "number",
+        "localTimestampMs": "number",
+        "offsetSeconds": "number",
+        "serverDatetime": "string"
+      },
+      "RunRule": {
+        "dayGoal": "number (meters)",
+        "minDistance": "number (meters)",
+        "speedTop": "string",
+        "speedBottom": "string",
+        "stepTop": "number|string",
+        "stepBottom": "number|string",
+        "validTimes": "string[]",
+        "faceCheck": "FaceCheckConfig",
+        "raw": "object"
+      },
+      "FaceCheckConfig": {
+        "enable": "boolean",
+        "checkPointMin": "number",
+        "checkPointMax": "number",
+        "checkRunValidTime": "number"
+      },
+      "GeoPoint": {
+        "lat": "number",
+        "lng": "number",
+        "pointId": "number|null",
+        "name": "string|null",
+        "raw": "object"
+      },
+      "GeoFenceArea": {
+        "fenceId": "number",
+        "fenceName": "string",
+        "polygonPoints": "GeoPoint[]",
+        "checkPoints": "GeoPoint[]",
+        "raw": "object"
+      },
+      "SemesterInfo": {
+        "semesterName": "string",
+        "totalCompletedDistance": "number",
+        "validCount": "number",
+        "targetDistance": "number",
+        "remainingDistance": "number",
+        "raw": "object"
+      },
+      "GpsPoint": {
+        "lat": "number",
+        "lon": "number",
+        "time": "number (epoch ms)",
+        "speed": "number (m/s)",
+        "accuracy": "number",
+        "isValid": "boolean"
+      },
+      "FivePoint": {
+        "lat": "number",
+        "lon": "number",
+        "isFixed": "number",
+        "isPass": "boolean",
+        "pointName": "string",
+        "position": "number",
+        "raw": "object"
+      },
+      "SpeedBucket": {
+        "distance": "number",
+        "beginTime": "number",
+        "endTime": "number",
+        "flag": "number",
+        "state": "number",
+        "queueNum": "number"
+      },
+      "StepBucket": {
+        "stepsNum": "number",
+        "beginTime": "number",
+        "endTime": "number",
+        "flag": "number",
+        "maxDiff": "number",
+        "minDiff": "number",
+        "avgDiff": "number",
+        "state": "number",
+        "queueNum": "number"
+      },
+      "SignatureSummary": {
+        "fieldCount": "number",
+        "fields": "Record<string,string> (masked values for sensitive fields)",
+        "signature": "string",
+        "originalSign": "string",
+        "algorithm": "MD5 with salt (salt never exposed)"
+      },
+      "Warning": {
+        "code": "string",
+        "message": "string",
+        "severity": "info|warn|danger"
+      },
+      "RunPreview": {
+        "preparedId": "string",
+        "mode": "1|6",
+        "distanceM": "number",
+        "timeSec": "number",
+        "totalSteps": "number",
+        "startTimeMs": "number",
+        "stopTimeMs": "number",
+        "rule": "RunRule",
+        "fence": "GeoFenceArea|null",
+        "checkpoints": "GeoPoint[]",
+        "gpsPoints": "GpsPoint[]",
+        "fivePoints": "FivePoint[]",
+        "speedBuckets": "SpeedBucket[]",
+        "stepBuckets": "StepBucket[]",
+        "signature": "SignatureSummary",
+        "payload": {
+          "allLocJsonBytes": "number",
+          "obsPayloadBytes": "number",
+          "objectKey": "string"
+        },
+        "warnings": "Warning[]",
+        "dryRun": "boolean",
+        "networkWrites": "false"
+      },
+      "RunResult": {
+        "runId": "string",
+        "success": "boolean",
+        "rrid": "number|null",
+        "isValid": "boolean|null",
+        "totalDistance": "number",
+        "totalTime": "number",
+        "avgPaceSecPerKm": "number",
+        "stages": "StageEvent[]",
+        "obs": "ObsResult|null",
+        "signature": "SignatureSummary|null",
+        "recheck": "RunRecordDetail|null",
+        "warnings": "Warning[]",
+        "traceId": "string"
+      },
+      "StageEvent": {
+        "stage": "time-sync|policy-fence|trajectory|obs|settle|recheck",
+        "status": "started|succeeded|failed|skipped",
+        "message": "string",
+        "ts": "number",
+        "data": "object|null"
+      },
+      "RunRecordDetail": {
+        "rrid": "number",
+        "sportType": "number",
+        "totalDistance": "number",
+        "validDistance": "number",
+        "totalTime": "number",
+        "validTime": "number",
+        "calorie": "number",
+        "status": "number",
+        "isValid": "boolean",
+        "uncompleteReason": "number",
+        "startTime": "number",
+        "stopTime": "number",
+        "avgSpeed": "string",
+        "avgStepFreq": "number",
+        "raw": "object"
+      },
+      "ObsResult": {
+        "bucket": "string",
+        "objectKey": "string",
+        "putStatus": "number|null",
+        "putOk": "boolean",
+        "message": "string",
+        "bytes": "number|null"
+      },
+      "ErrorEnvelope": {
+        "ok": "false",
+        "error": {
+          "code": "string",
+          "message": "string",
+          "detail": "string|null",
+          "retryable": "boolean"
+        }
+      },
+      "AuthState": "boot|restoring|loggedOut|checking|captchaRequired|validating|submitting|loggedIn|expired|error",
+      "RunState": "idle|preparing|previewReady|submitting|timeSync|policyFence|trajectory|obs|settle|recheck|success|failed|cancelled"
+    },
+    "python": {
+      "RunRule": {
+        "fields": [
+          "day_goal: int",
+          "min_distance: int",
+          "speed_top: str",
+          "speed_bottom: str",
+          "step_top: int|str",
+          "step_bottom: int|str",
+          "valid_times: list[str]",
+          "face_check: FaceCheckConfig",
+          "raw: dict"
+        ],
+        "source": "协议/7.3.92/policy/models.py"
+      },
+      "GeoFenceArea": {
+        "fields": [
+          "fence_id: int",
+          "fence_name: str",
+          "polygon_points: list[GeoPoint]",
+          "check_points: list[GeoPoint]",
+          "raw: dict"
+        ],
+        "source": "协议/7.3.92/policy/models.py"
+      },
+      "SemesterInfo": {
+        "fields": [
+          "semester_name: str",
+          "total_completed_distance: float",
+          "valid_count: int",
+          "target_distance: float",
+          "remaining_distance: float",
+          "raw: dict"
+        ],
+        "source": "协议/7.3.92/policy/models.py"
+      },
+      "GpsPoint": {
+        "fields": [
+          "lat: float",
+          "lon: float",
+          "time: int",
+          "speed: float",
+          "accuracy: float",
+          "isValid: bool"
+        ],
+        "source": "协议/7.3.92/running/models.py"
+      },
+      "FivePoint": {
+        "fields": [
+          "lat: float",
+          "lon: float",
+          "isFixed: int",
+          "isPass: bool",
+          "pointName: str",
+          "position: int",
+          "raw: dict|None"
+        ],
+        "source": "协议/7.3.92/running/models.py"
+      },
+      "SpeedBucket": {
+        "fields": [
+          "distance: float",
+          "beginTime: int",
+          "endTime: int",
+          "flag: int",
+          "state: int",
+          "queueNum: int"
+        ],
+        "source": "协议/7.3.92/running/models.py"
+      },
+      "StepBucket": {
+        "fields": [
+          "stepsNum: int",
+          "beginTime: int",
+          "endTime: int",
+          "flag: int",
+          "maxDiff: float",
+          "minDiff: float",
+          "avgDiff: float",
+          "state: int",
+          "queueNum: int"
+        ],
+        "source": "协议/7.3.92/running/models.py"
+      },
+      "RunningSubmissionResult": {
+        "fields": [
+          "success: bool",
+          "rrid: int|None",
+          "error_code: int",
+          "message: str",
+          "total_distance: float",
+          "total_time: int",
+          "is_valid: bool",
+          "raw: dict"
+        ],
+        "source": "协议/7.3.92/running/models.py"
+      }
+    }
+  },
+  "screens": [
+    {
+      "id": "login",
+      "route": "/login",
+      "title": "登录",
+      "purpose": "Authenticate with username/password, complete manual GeeTest, persist token.",
+      "components": [
+        "LoginForm",
+        "CaptchaSheet",
+        "ErrorPanel",
+        "SafetyBanner"
+      ],
+      "dataSources": [
+        "prepareLogin",
+        "submitLogin"
+      ],
+      "actions": [
+        {
+          "id": "submitCredentials",
+          "label": "登录",
+          "calls": "prepareLogin then CaptchaSheet if needCaptcha then submitLogin"
+        },
+        {
+          "id": "openTokenImport",
+          "label": "使用 Token 导入",
+          "route": "/login/token"
+        }
+      ],
+      "states": [
+        "idle",
+        "checking",
+        "captchaRequired",
+        "validating",
+        "submitting",
+        "error"
+      ],
+      "acceptance": [
+        "Empty username/password is rejected locally.",
+        "checkGeeUse response controls captcha visibility.",
+        "A successful manual slide yields lot_number, captcha_output, pass_token, gen_time.",
+        "Token is persisted; password is not.",
+        "Failure shows a retry and the token-import fallback."
+      ],
+      "statusBreakdown": {
+        "existing": [
+          "checkGeeUse",
+          "geevalidate",
+          "submitLogin"
+        ],
+        "adapter": [
+          "LoginClient stepwise orchestration"
+        ],
+        "new": [
+          "Login UI",
+          "manual GeeTest WebView",
+          "secure token storage",
+          "token fallback"
+        ]
+      }
+    },
+    {
+      "id": "console",
+      "route": "/",
+      "title": "控制台",
+      "purpose": "Show account, semester progress, current rule summary, readiness checklist, and primary action.",
+      "components": [
+        "ProfileCard",
+        "SemesterProgress",
+        "RuleSummary",
+        "Checklist",
+        "PrimaryButton"
+      ],
+      "dataSources": [
+        "getProfile",
+        "getSemesterProgress",
+        "getPolicy"
+      ],
+      "actions": [
+        {
+          "id": "refresh",
+          "label": "刷新",
+          "calls": "getProfile/getSemesterProgress/getPolicy"
+        },
+        {
+          "id": "startRun",
+          "label": "开始跑步",
+          "route": "/run"
+        }
+      ],
+      "states": [
+        "loading",
+        "ready",
+        "partial",
+        "error"
+      ],
+      "acceptance": [
+        "Checklist states are derived, not hardcoded.",
+        "If semester progress fails, the rest of the console still renders.",
+        "Primary action is disabled until logged in."
+      ],
+      "statusBreakdown": {
+        "existing": [
+          "profile",
+          "rule"
+        ],
+        "adapter": [
+          "semester progress"
+        ],
+        "new": [
+          "console UI",
+          "checklist",
+          "progress aggregation"
+        ]
+      }
+    },
+    {
+      "id": "policy",
+      "route": "/policy",
+      "title": "规则与围栏",
+      "purpose": "Select mode, inspect rules, face-check status, geofences, and official checkpoints.",
+      "components": [
+        "ModeSwitch",
+        "RuleCard",
+        "FaceCheckBadge",
+        "FenceList",
+        "RouteCanvas",
+        "CheckpointList"
+      ],
+      "dataSources": [
+        "getPolicy",
+        "getFences",
+        "getCheckpoints"
+      ],
+      "actions": [
+        {
+          "id": "switchMode",
+          "label": "计分跑/自由跑",
+          "calls": "getPolicy(mode); clear checkpoints when mode changes"
+        },
+        {
+          "id": "selectFence",
+          "label": "选择围栏",
+          "calls": "set selectedFenceId; render polygon"
+        },
+        {
+          "id": "loadCheckpoints",
+          "label": "查询官方点位",
+          "calls": "getCheckpoints"
+        }
+      ],
+      "states": [
+        "loading",
+        "ready",
+        "multiArea",
+        "checkpointError",
+        "error"
+      ],
+      "acceptance": [
+        "Mode switch refetches the rule.",
+        "Face-check enabled shows a prominent warning.",
+        "Fence polygon is rendered from polygon_points.",
+        "Checkpoint failure is shown explicitly; scoring runs do not silently use a local fallback.",
+        "Multiple run areas produce a selector or actionable error."
+      ],
+      "statusBreakdown": {
+        "existing": [
+          "rules",
+          "fences",
+          "checkpoints"
+        ],
+        "adapter": [
+          "multi-area selection",
+          "checkpoint error surfacing"
+        ],
+        "new": [
+          "policy UI",
+          "SVG map",
+          "warnings"
+        ]
+      }
+    },
+    {
+      "id": "runSetup",
+      "route": "/run",
+      "title": "跑步配置",
+      "purpose": "Set distance/time, validate against rules, preview route, choose dry-run or submit.",
+      "components": [
+        "DistanceInput",
+        "DurationInput",
+        "PaceMeter",
+        "RuleWarnings",
+        "RouteCanvas",
+        "SpeedChart",
+        "StepChart",
+        "DryRunSwitch",
+        "SubmitButton"
+      ],
+      "dataSources": [
+        "getPolicy",
+        "getFences",
+        "getCheckpoints",
+        "previewRun"
+      ],
+      "actions": [
+        {
+          "id": "preview",
+          "label": "刷新预览",
+          "calls": "previewRun"
+        },
+        {
+          "id": "submit",
+          "label": "开始提交",
+          "calls": "executeRun(dryRun=false)"
+        },
+        {
+          "id": "dryRun",
+          "label": "演练模式",
+          "calls": "executeRun(dryRun=true)"
+        }
+      ],
+      "states": [
+        "idle",
+        "preparing",
+        "previewReady",
+        "previewError",
+        "submitting"
+      ],
+      "acceptance": [
+        "Pace is computed from distance/time and shown in min/km.",
+        "Out-of-range pace/step shows warnings but does not hard-block.",
+        "Preview makes no OBS/save requests.",
+        "Dry-run returns a preview-like result and no writes.",
+        "Distance/time must be positive integers."
+      ],
+      "statusBreakdown": {
+        "existing": [
+          "distance/time CLI params",
+          "trajectory builder",
+          "buckets"
+        ],
+        "adapter": [
+          "prepare_run",
+          "signature summary",
+          "structured preview"
+        ],
+        "new": [
+          "run setup UI",
+          "pace validation",
+          "charts",
+          "dry-run"
+        ]
+      }
+    },
+    {
+      "id": "running",
+      "route": "/run/running",
+      "title": "运行中",
+      "purpose": "Show the six internal stage IDs grouped into five UI steps, live logs, cancellation availability, and errors.",
+      "components": [
+        "StageStepper",
+        "LogConsole",
+        "CancelButton",
+        "ErrorPanel"
+      ],
+      "dataSources": [
+        "runProgress",
+        "runLog"
+      ],
+      "actions": [
+        {
+          "id": "cancel",
+          "label": "取消",
+          "calls": "cancelRun"
+        }
+      ],
+      "states": [
+        "running",
+        "cancelling",
+        "success",
+        "failed",
+        "cancelled"
+      ],
+      "acceptance": [
+        "Stages update from events, not timers.",
+        "Cancel is disabled once the obs stage starts.",
+        "Time-backfill is explained in the UI.",
+        "Logs redact secrets.",
+        "The screen keeps the device awake while running."
+      ],
+      "statusBreakdown": {
+        "existing": [
+          "protocol steps",
+          "progress strings"
+        ],
+        "adapter": [
+          "structured events",
+          "stage mapping",
+          "cancel"
+        ],
+        "new": [
+          "running UI",
+          "log console",
+          "keep-awake"
+        ]
+      }
+    },
+    {
+      "id": "result",
+      "route": "/run/result",
+      "title": "跑步结果",
+      "purpose": "Show rrid, validity, metrics, signature summary, OBS status, recheck, and trace export.",
+      "components": [
+        "ResultHero",
+        "MetricGrid",
+        "SignatureSummary",
+        "ObsStatus",
+        "RecheckButton",
+        "ExportButton"
+      ],
+      "dataSources": [
+        "executeRun result",
+        "recheckRecord",
+        "exportTrace"
+      ],
+      "actions": [
+        {
+          "id": "recheck",
+          "label": "重新回查",
+          "calls": "recheckRecord"
+        },
+        {
+          "id": "export",
+          "label": "导出记录",
+          "calls": "exportTrace"
+        }
+      ],
+      "states": [
+        "success",
+        "notValid",
+        "partial",
+        "unknown",
+        "error"
+      ],
+      "acceptance": [
+        "Validity is only shown when the record is confirmed.",
+        "Recheck failure shows unknown, not success.",
+        "OBS success + settlement failure is shown as partial.",
+        "Export redacts secrets."
+      ],
+      "statusBreakdown": {
+        "existing": [
+          "RunningSubmissionResult",
+          "get_one_record"
+        ],
+        "adapter": [
+          "signature summary",
+          "OBS status",
+          "structured result"
+        ],
+        "new": [
+          "result UI",
+          "trace export"
+        ]
+      }
+    },
+    {
+      "id": "settings",
+      "route": "/me",
+      "title": "我的",
+      "purpose": "Show token status, stable device ID, versions, session reset, disclaimer.",
+      "components": [
+        "AccountCard",
+        "TokenStatus",
+        "DeviceIdRow",
+        "VersionRows",
+        "DangerButton",
+        "DisclaimerSheet"
+      ],
+      "dataSources": [
+        "getRuntimeInfo",
+        "logout"
+      ],
+      "actions": [
+        {
+          "id": "logout",
+          "label": "清除会话",
+          "calls": "logout"
+        },
+        {
+          "id": "disclaimer",
+          "label": "查看免责声明",
+          "calls": "open sheet"
+        }
+      ],
+      "states": [
+        "ready"
+      ],
+      "acceptance": [
+        "Token is masked; no full token display.",
+        "Device ID is masked except a short prefix/suffix.",
+        "Logout keeps device ID and clears session.",
+        "Version rows show app, protocol, and Python versions."
+      ],
+      "statusBreakdown": {
+        "existing": [
+          "version constants",
+          "README disclaimer"
+        ],
+        "adapter": [
+          "masked device ID display"
+        ],
+        "new": [
+          "settings UI",
+          "token status",
+          "stable device ID",
+          "logout"
+        ]
+      }
+    }
+  ],
+  "navigation": {
+    "tabs": [
+      {
+        "route": "/",
+        "label": "控制台",
+        "icon": "console"
+      },
+      {
+        "route": "/policy",
+        "label": "规则",
+        "icon": "rules"
+      },
+      {
+        "route": "/run",
+        "label": "跑步",
+        "icon": "run"
+      },
+      {
+        "route": "/me",
+        "label": "我的",
+        "icon": "user"
+      }
+    ],
+    "routes": [
+      {
+        "path": "/login",
+        "name": "login",
+        "layout": "fullscreen",
+        "requiresAuth": false
+      },
+      {
+        "path": "/login/token",
+        "name": "tokenImport",
+        "layout": "fullscreen",
+        "requiresAuth": false
+      },
+      {
+        "path": "/",
+        "name": "console",
+        "layout": "tabs",
+        "requiresAuth": true
+      },
+      {
+        "path": "/policy",
+        "name": "policy",
+        "layout": "tabs",
+        "requiresAuth": true
+      },
+      {
+        "path": "/run",
+        "name": "runSetup",
+        "layout": "tabs",
+        "requiresAuth": true
+      },
+      {
+        "path": "/run/running",
+        "name": "running",
+        "layout": "fullscreen",
+        "requiresAuth": true,
+        "guard": "activeRun"
+      },
+      {
+        "path": "/run/result",
+        "name": "result",
+        "layout": "fullscreen",
+        "requiresAuth": true,
+        "guard": "hasResult"
+      },
+      {
+        "path": "/me",
+        "name": "settings",
+        "layout": "tabs",
+        "requiresAuth": true
+      }
+    ],
+    "guards": [
+      "If auth.status is not loggedIn, redirect to /login except /login and /login/token.",
+      "If a run is active and the user tries to leave /run/running, show a confirm sheet.",
+      "Android back on /run/running must not silently abandon the run."
+    ],
+    "backBehavior": [
+      "Login: back exits the app after confirm.",
+      "Tabs: back returns to console tab; second back exits.",
+      "Running: back opens the cancel/leave confirmation.",
+      "Result: back returns to run setup with the previous parameters."
+    ],
+    "status": "superseded",
+    "supersededBy": "UI设计说明.md §1 / UI_SPEC.json 2.0.0"
+  },
+  "stateMachines": {
+    "auth": {
+      "initial": "boot",
+      "states": [
+        "boot",
+        "restoring",
+        "loggedOut",
+        "checking",
+        "captchaRequired",
+        "validating",
+        "submitting",
+        "loggedIn",
+        "expired",
+        "error"
+      ],
+      "transitions": [
+        {
+          "from": "boot",
+          "event": "INIT",
+          "to": "restoring"
+        },
+        {
+          "from": "restoring",
+          "event": "HAS_SESSION",
+          "to": "loggedIn"
+        },
+        {
+          "from": "restoring",
+          "event": "NO_SESSION",
+          "to": "loggedOut"
+        },
+        {
+          "from": "loggedOut",
+          "event": "PREPARE_LOGIN",
+          "to": "checking"
+        },
+        {
+          "from": "checking",
+          "event": "CAPTCHA_REQUIRED",
+          "to": "captchaRequired"
+        },
+        {
+          "from": "checking",
+          "event": "NO_CAPTCHA",
+          "to": "submitting"
+        },
+        {
+          "from": "captchaRequired",
+          "event": "CAPTCHA_OK",
+          "to": "validating"
+        },
+        {
+          "from": "captchaRequired",
+          "event": "CAPTCHA_CANCEL",
+          "to": "loggedOut"
+        },
+        {
+          "from": "validating",
+          "event": "VALIDATE_OK",
+          "to": "submitting"
+        },
+        {
+          "from": "validating",
+          "event": "VALIDATE_FAIL",
+          "to": "captchaRequired"
+        },
+        {
+          "from": "submitting",
+          "event": "LOGIN_OK",
+          "to": "loggedIn"
+        },
+        {
+          "from": "submitting",
+          "event": "LOGIN_FAIL",
+          "to": "error"
+        },
+        {
+          "from": "loggedIn",
+          "event": "AUTH_EXPIRED",
+          "to": "expired"
+        },
+        {
+          "from": "expired",
+          "event": "ACK",
+          "to": "loggedOut"
+        },
+        {
+          "from": "error",
+          "event": "RETRY",
+          "to": "loggedOut"
+        }
+      ]
+    },
+    "run": {
+      "initial": "idle",
+      "states": [
+        "idle",
+        "preparing",
+        "previewReady",
+        "submitting",
+        "timeSync",
+        "policyFence",
+        "trajectory",
+        "obs",
+        "settle",
+        "recheck",
+        "success",
+        "failed",
+        "cancelled"
+      ],
+      "transitions": [
+        {
+          "from": "idle",
+          "event": "PREVIEW",
+          "to": "preparing"
+        },
+        {
+          "from": "preparing",
+          "event": "PREVIEW_OK",
+          "to": "previewReady"
+        },
+        {
+          "from": "preparing",
+          "event": "PREVIEW_FAIL",
+          "to": "failed"
+        },
+        {
+          "from": "previewReady",
+          "event": "SUBMIT",
+          "to": "submitting"
+        },
+        {
+          "from": "previewReady",
+          "event": "CANCEL",
+          "to": "cancelled"
+        },
+        {
+          "from": "submitting",
+          "event": "STAGE_TIME_SYNC",
+          "to": "timeSync"
+        },
+        {
+          "from": "timeSync",
+          "event": "STAGE_POLICY_FENCE",
+          "to": "policyFence"
+        },
+        {
+          "from": "policyFence",
+          "event": "STAGE_TRAJECTORY",
+          "to": "trajectory"
+        },
+        {
+          "from": "trajectory",
+          "event": "STAGE_OBS",
+          "to": "obs"
+        },
+        {
+          "from": "obs",
+          "event": "STAGE_SETTLE",
+          "to": "settle"
+        },
+        {
+          "from": "settle",
+          "event": "STAGE_RECHECK",
+          "to": "recheck"
+        },
+        {
+          "from": "recheck",
+          "event": "COMPLETE",
+          "to": "success"
+        },
+        {
+          "from": "recheck",
+          "event": "RECHECK_UNKNOWN",
+          "to": "success"
+        },
+        {
+          "from": "submitting",
+          "event": "FAIL",
+          "to": "failed"
+        },
+        {
+          "from": "timeSync",
+          "event": "FAIL",
+          "to": "failed"
+        },
+        {
+          "from": "policyFence",
+          "event": "FAIL",
+          "to": "failed"
+        },
+        {
+          "from": "trajectory",
+          "event": "FAIL",
+          "to": "failed"
+        },
+        {
+          "from": "obs",
+          "event": "FAIL",
+          "to": "failed"
+        },
+        {
+          "from": "settle",
+          "event": "FAIL",
+          "to": "failed"
+        },
+        {
+          "from": "submitting",
+          "event": "CANCEL",
+          "to": "cancelled"
+        },
+        {
+          "from": "timeSync",
+          "event": "CANCEL",
+          "to": "cancelled"
+        },
+        {
+          "from": "policyFence",
+          "event": "CANCEL",
+          "to": "cancelled"
+        },
+        {
+          "from": "trajectory",
+          "event": "CANCEL",
+          "to": "cancelled"
+        },
+        {
+          "from": "obs",
+          "event": "CANCEL",
+          "to": "obs",
+          "guard": "reject with CANCEL_TOO_LATE"
+        }
+      ],
+      "guards": [
+        "Cancel is allowed only before the obs stage starts.",
+        "RECHECK_UNKNOWN ends the flow but isValid must be null.",
+        "failed and cancelled must preserve the stage/log history for the result screen."
+      ]
+    }
+  },
+  "stores": {
+    "auth": {
+      "state": {
+        "status": "AuthState",
+        "profile": "UserProfile|null",
+        "captcha": "{sessionUuid,captchaId}|null",
+        "lastError": "ErrorEnvelope|null"
+      },
+      "actions": [
+        "restore()",
+        "prepareLogin(username)",
+        "submitLogin(username,password,geetest)",
+        "logout()",
+        "handleAuthExpired()"
+      ]
+    },
+    "policy": {
+      "state": {
+        "mode": "1|6",
+        "rule": "RunRule|null",
+        "fences": "GeoFenceArea[]",
+        "selectedFenceId": "number|null",
+        "checkpoints": "GeoPoint[]",
+        "semester": "SemesterInfo|null",
+        "loading": "boolean",
+        "error": "ErrorEnvelope|null",
+        "fetchedAt": "number|null"
+      },
+      "actions": [
+        "loadPolicy(mode)",
+        "loadFences()",
+        "loadCheckpoints(fenceId)",
+        "loadSemester(mode)",
+        "selectFence(id)",
+        "invalidate()"
+      ]
+    },
+    "run": {
+      "state": {
+        "params": "{mode,distanceM,timeSec}",
+        "state": "RunState",
+        "preview": "RunPreview|null",
+        "stages": "Record<string,StageEvent>",
+        "logs": "LogEvent[]",
+        "result": "RunResult|null",
+        "cancelRequested": "boolean",
+        "traceId": "string|null"
+      },
+      "actions": [
+        "preview(params)",
+        "execute(params,dryRun)",
+        "cancel()",
+        "recheck(rrid)",
+        "exportTrace()",
+        "reset()"
+      ]
+    },
+    "device": {
+      "state": {
+        "deviceId": "string",
+        "appVersion": "string",
+        "protocolVersion": "string",
+        "pythonVersion": "string",
+        "packageName": "string"
+      },
+      "actions": [
+        "load()"
+      ]
+    },
+    "ui": {
+      "state": {
+        "toast": "{type,message}|null",
+        "modal": "string|null",
+        "online": "boolean",
+        "keepAwake": "boolean"
+      },
+      "actions": [
+        "toast(type,message)",
+        "openModal(id)",
+        "closeModal()",
+        "setOnline(value)",
+        "setKeepAwake(value)"
+      ]
+    }
+  },
+  "designSystem": {
+    "theme": "dark-console",
+    "colors": {
+      "bg0": "#070A0D",
+      "bg1": "#0C1116",
+      "bg2": "#111820",
+      "bg3": "#18212B",
+      "line": "rgba(255,255,255,0.08)",
+      "lineStrong": "rgba(255,255,255,0.14)",
+      "text": "#E8EEF4",
+      "textMuted": "#8B98A5",
+      "textDim": "#5C6975",
+      "accent": "#B6F36B",
+      "accent2": "#5CD6FF",
+      "ok": "#6BE39A",
+      "warn": "#FFB454",
+      "danger": "#FF5C6C",
+      "info": "#5CD6FF",
+      "chartPalette": [
+        "#B6F36B",
+        "#5CD6FF",
+        "#FFB454",
+        "#FF7AB6",
+        "#9D8CFF"
+      ]
+    },
+    "typography": {
+      "sans": "-apple-system, 'PingFang SC', 'HarmonyOS Sans SC', 'Microsoft YaHei', sans-serif",
+      "mono": "'SF Mono', 'Cascadia Mono', 'JetBrains Mono', Consolas, monospace",
+      "sizes": [
+        12,
+        14,
+        16,
+        20,
+        24,
+        32,
+        40
+      ],
+      "numeric": "font-variant-numeric: tabular-nums;",
+      "lineHeight": {
+        "body": 1.5,
+        "heading": 1.2,
+        "data": 1.1
+      }
+    },
+    "spacing": [
+      4,
+      8,
+      12,
+      16,
+      20,
+      24,
+      32
+    ],
+    "radii": {
+      "sm": 4,
+      "md": 8,
+      "lg": 12,
+      "xl": 16,
+      "sheet": 20
+    },
+    "shadows": {
+      "card": "none; use borders",
+      "sheet": "0 -8px 32px rgba(0,0,0,0.45)",
+      "focus": "0 0 0 2px #5CD6FF"
+    },
+    "motion": {
+      "fast": "120ms",
+      "base": "180ms",
+      "slow": "240ms",
+      "easing": "cubic-bezier(.2,.8,.2,1)",
+      "reducedMotion": "disable route draw, pulse, and progress shimmer"
+    },
+    "layout": {
+      "viewport": "100dvh",
+      "safeArea": "env(safe-area-inset-*)",
+      "tabBarHeight": 56,
+      "contentPadding": 16,
+      "maxContentWidth": 720,
+      "minTouchTarget": 44,
+      "primaryButtonHeight": 52,
+      "noHorizontalScroll": true
+    },
+    "chartTheme": {
+      "backgroundColor": "transparent",
+      "gridColor": "rgba(255,255,255,0.06)",
+      "axisColor": "rgba(255,255,255,0.18)",
+      "labelColor": "#8B98A5",
+      "lineWidth": 2,
+      "symbolSize": 0,
+      "tooltipBackground": "#111820",
+      "tooltipBorder": "rgba(255,255,255,0.14)"
+    },
+    "trajectorySvg": {
+      "normalization": "fit all points into the viewBox with 24px padding",
+      "grid": 32,
+      "fence": "dashed stroke + 8% fill",
+      "pathWidth": 3,
+      "pathColor": "speed gradient from accent2 (slow) to accent (fast)",
+      "checkpoint": "10px diamond",
+      "start": "circle + label",
+      "end": "circle + label",
+      "scaleBar": true,
+      "northArrow": true,
+      "zoom": "1x-6x pinch",
+      "pan": "single finger",
+      "downsample": "keep corners and checkpoints; cap at 600 rendered points"
+    },
+    "accessibility": [
+      "Contrast ratio >= 4.5:1 for body text.",
+      "Status must use icon + text, not color alone.",
+      "Focus ring must be visible for keyboard and switch access.",
+      "Respect prefers-reduced-motion.",
+      "All icon-only buttons need aria-label.",
+      "Do not rely on hover for any action."
+    ]
+  },
+  "apiEndpoints": [
+    {
+      "name": "checkGeeUse",
+      "method": "POST",
+      "host": "HOST_RUN",
+      "path": "/api/v65/security/checkGeeUse",
+      "source": "login/config.py",
+      "usedBy": "prepareLogin",
+      "sideEffects": "none",
+      "notes": "Returns data:true when captcha can be skipped."
+    },
+    {
+      "name": "geevalidate",
+      "method": "POST",
+      "host": "HOST_RUN",
+      "path": "/api/v70270/security/geevalidate",
+      "source": "login/config.py",
+      "usedBy": "submitLogin",
+      "sideEffects": "binds captcha result to session",
+      "notes": "Requires lotNumber, captchaOutput, passToken, genTime, uuid, username."
+    },
+    {
+      "name": "login",
+      "method": "POST",
+      "host": "HOST_RUN",
+      "path": "/api/v70100/login",
+      "source": "login/config.py",
+      "usedBy": "submitLogin",
+      "sideEffects": "issues token/uid/unid",
+      "notes": "Authorization: Basic base64(username:password); password never logged."
+    },
+    {
+      "name": "serverTime",
+      "method": "GET",
+      "host": "HOST_RUN",
+      "path": "/api/v3/getserver/gmttime",
+      "source": "profile/config.py",
+      "usedBy": "prepare_run, execute_run",
+      "sideEffects": "none",
+      "notes": "Used for time alignment and timestamp backfill."
+    },
+    {
+      "name": "userInfo",
+      "method": "GET",
+      "host": "HOST_RUN",
+      "path": "/api/v70390/user/info",
+      "source": "profile/config.py",
+      "usedBy": "getProfile",
+      "sideEffects": "none",
+      "notes": "Profile details."
+    },
+    {
+      "name": "runModePolicy",
+      "method": "POST",
+      "host": "HOST_RUN",
+      "path": "/api/v70103/runModePolicy",
+      "source": "policy/config.py",
+      "usedBy": "getPolicy, prepare_run",
+      "sideEffects": "none",
+      "notes": "runMode 1 = scoring, 6 = free."
+    },
+    {
+      "name": "geoFence",
+      "method": "POST",
+      "host": "HOST_RUN",
+      "path": "/api/v1/getGeoFenceForRun",
+      "source": "policy/config.py",
+      "usedBy": "getFences, prepare_run",
+      "sideEffects": "none",
+      "notes": "Returns geoFences[].points[] and passPoints[]."
+    },
+    {
+      "name": "semesterInfo",
+      "method": "POST",
+      "host": "HOST_RUN",
+      "path": "/api/v41/running/getPersonalSemesterInfo",
+      "source": "policy/config.py",
+      "usedBy": "getSemesterProgress",
+      "sideEffects": "none",
+      "notes": "Response shape unverified by CLI."
+    },
+    {
+      "name": "distanceRoutePoints",
+      "method": "POST",
+      "host": "HOST_RUN",
+      "path": "/api/v560/get/1/distance/{distance_m}",
+      "source": "policy/client.py",
+      "usedBy": "getCheckpoints, prepare_run",
+      "sideEffects": "issues official checkpoints; no record upload",
+      "notes": "Only for mode 1. Uses a signed URL path and GCJ anchor."
+    },
+    {
+      "name": "obsTemporaryUrl",
+      "method": "POST",
+      "host": "HOST_RUN",
+      "path": "/api/obs/temporary/url",
+      "source": "running/config.py",
+      "usedBy": "submit_prepared_run",
+      "sideEffects": "issues a presigned OBS PUT URL",
+      "notes": "Request: bucketName, objectKey, method Put, contentType text/plain."
+    },
+    {
+      "name": "obsPut",
+      "method": "PUT",
+      "host": "OBS signed URL",
+      "path": "signed URL",
+      "source": "running/client.py",
+      "usedBy": "submit_prepared_run",
+      "sideEffects": "uploads gzip+base64 payload",
+      "notes": "Must use the signed headers returned by obsTemporaryUrl."
+    },
+    {
+      "name": "saveRecord",
+      "method": "POST",
+      "host": "HOST_RUN",
+      "path": "/api/v70260/runnings/save/record",
+      "source": "running/config.py",
+      "usedBy": "submit_prepared_run",
+      "sideEffects": "commits the run record",
+      "notes": "Contains 31 signed fields and originalSign/signature."
+    },
+    {
+      "name": "oneRecord",
+      "method": "POST",
+      "host": "HOST_RUN",
+      "path": "/api/v70320/runnings/get_one_record",
+      "source": "history/config.py",
+      "usedBy": "recheckRecord, submit_prepared_run",
+      "sideEffects": "none",
+      "notes": "isValid requires status==1 and unCompleteReason==0."
+    },
+    {
+      "name": "runDetailConfig",
+      "method": "GET",
+      "host": "HOST_RUN",
+      "path": "/api/v70340/activity/rundetail/config?sportType={sportType}",
+      "source": "running/config.py",
+      "usedBy": "submit_prepared_run",
+      "sideEffects": "none",
+      "notes": "Post-run refresh."
+    },
+    {
+      "name": "startupPv",
+      "method": "POST",
+      "host": "HOST_DATAPOINT",
+      "path": "/api/v76/startup/pv",
+      "source": "telemetry/config.py",
+      "usedBy": "prepare_run",
+      "sideEffects": "telemetry event",
+      "notes": "Only when unid is present."
+    },
+    {
+      "name": "datacollectionPv",
+      "method": "POST",
+      "host": "HOST_DATAPOINT",
+      "path": "/api/v76/datacollection/pv",
+      "source": "telemetry/config.py",
+      "usedBy": "prepare_run",
+      "sideEffects": "telemetry event",
+      "notes": "Page exposure; only when unid is present."
+    }
+  ],
+  "security": {
+    "tokenStorage": {
+      "implementation": "Android EncryptedSharedPreferences backed by Android Keystore",
+      "keys": [
+        "session.uid",
+        "session.unid",
+        "session.token",
+        "session.savedAt",
+        "device.id",
+        "device.profile"
+      ],
+      "forbidden": [
+        "password",
+        "captcha payload",
+        "full signature salt",
+        "full token in logs"
+      ]
+    },
+    "logging": {
+      "redact": [
+        "phone number",
+        "password",
+        "token",
+        "uid/unid",
+        "full DeviceId",
+        "captcha lot_number/captcha_output/pass_token",
+        "full allLocJson",
+        "full signature/originalSign"
+      ],
+      "format": "stage-level logs only; no raw request/response bodies"
+    },
+    "bridge": {
+      "whitelistOnly": true,
+      "validateInKotlin": true,
+      "validateInPython": true,
+      "noArbitraryPython": true,
+      "noFilePaths": true,
+      "noEval": true
+    },
+    "webview": {
+      "mainPage": "local assets only; no remote URLs",
+      "captcha": "separate WebView or route; do not expose the main bridge to third-party scripts",
+      "javascriptEnabled": true,
+      "domStorageEnabled": true,
+      "mixedContent": "deny",
+      "cleartext": "deny",
+      "cspMain": "default-src 'self'; script-src 'self' 'unsafe-eval'; style-src 'self' 'unsafe-inline'; img-src 'self' data:; connect-src 'self'",
+      "cspCaptcha": "default-src 'self' https://static.geetest.com; script-src 'self' 'unsafe-eval' https://static.geetest.com; connect-src 'self' https://*.geetest.com; img-src 'self' data: https:; style-src 'self' 'unsafe-inline'"
+    },
+    "network": {
+      "httpsOnly": true,
+      "certificateValidation": "default system trust store",
+      "noProxy": true,
+      "noThirdPartyAnalytics": true
+    },
+    "secrets": {
+      "saltLocations": [
+        "running/config.py: SPORT_STATIC_SALT (reference only; do not copy the value into docs/frontend)",
+        "policy/client.py: distance route signing salt (reference only)"
+      ],
+      "captchaIdLocation": "login/config.py: LOGIN_CAPTCHA_ID (read at runtime and return via bridge)",
+      "rule": "Never write secret values into AI_SPEC.json, source maps, logs, or UI constants."
+    },
+    "compliance": [
+      "Personal/authorized accounts only.",
+      "No multi-account, paid proxy, or server-side pooling.",
+      "No commercial代跑.",
+      "Session files and traces must stay local unless explicitly exported by the user."
+    ]
+  },
+  "build": {
+    "prerequisites": [
+      "Node.js 22 LTS",
+      "JDK 21",
+      "Android Studio with SDK 35 and build tools",
+      "Python 3.12 for Chaquopy buildPython",
+      "Android 7.0+ arm64 device or x86_64 emulator",
+      "At least 25-40 GB free disk and 16 GB RAM recommended"
+    ],
+    "commands": [
+      "cd 可视化页面/app",
+      "npm install",
+      "npm run build",
+      "npx cap sync android",
+      "cd android",
+      "./gradlew assembleDebug",
+      "./gradlew assembleRelease"
+    ],
+    "gradle": {
+      "plugins": [
+        "com.android.application",
+        "com.chaquo.python"
+      ],
+      "chaquopyVersion": "17.1.0",
+      "pythonVersion": "3.12",
+      "abiFilters": [
+        "arm64-v8a",
+        "x86_64"
+      ],
+      "buildPython": "Absolute path to a Python 3.12 executable on the build machine",
+      "minSdk": 24,
+      "targetSdk": 35,
+      "compileSdk": 35
+    },
+    "chaquopy": {
+      "sourceSet": "android/app/src/main/python",
+      "module": "app_bridge",
+      "dependencies": "Protocol suite uses only the Python standard library; no pip packages required",
+      "exclude": [
+        "node_modules",
+        "tests",
+        "Playwright",
+        "geetest_solver.js"
+      ]
+    },
+    "capacitor": {
+      "webDir": "dist",
+      "androidScheme": "https",
+      "serverUrl": null,
+      "pluginRegistration": "MainActivity.registerPlugin(ProtocolPlugin::class.java)"
+    },
+    "vite": {
+      "base": "./",
+      "router": "createWebHashHistory",
+      "assetsInlineLimit": 4096,
+      "noExternalCdn": true,
+      "noSourceMapInRelease": true
+    },
+    "signing": {
+      "debug": "Gradle debug keystore",
+      "release": "Create a .jks with keytool; configure signingConfigs; back up the keystore and passwords offline",
+      "updateRule": "Same package name, higher versionCode, same keystore; otherwise uninstall/reinstall and lose the token"
+    },
+    "install": [
+      "Transfer app-debug.apk or app-release.apk to the phone.",
+      "Allow install from unknown sources for the file manager/browser.",
+      "Tap the APK and install.",
+      "Open the app and complete the disclaimer/login."
+    ],
+    "sizeEstimate": "30-50 MB depending on ABI and Python stdlib packaging",
+    "encoding": [
+      "The repository path contains Chinese characters.",
+      "Prefer an ASCII build path, or set JAVA_TOOL_OPTIONS=-Dfile.encoding=UTF-8.",
+      "Ensure source files are UTF-8."
+    ]
+  },
+  "testing": {
+    "unit": [
+      "Pace formatting: seconds/km -> mm'ss\".",
+      "Distance/time validation: positive integers; reject NaN/Infinity/booleans.",
+      "Rule warning parser: speedTop/speedBottom variants; stepTop/stepBottom '不限'.",
+      "SVG normalization: bounding box, padding, degenerate single-point route.",
+      "Masking: phone, token, device ID, uid.",
+      "Error envelope mapping."
+    ],
+    "contract": [
+      "Mock ProtocolBridge implements every method and event.",
+      "Web dev build runs with the mock bridge without Android.",
+      "All bridge methods match the TypeScript interface.",
+      "Unknown bridge method is rejected."
+    ],
+    "python": [
+      "prepare_run returns all PreparedRun fields.",
+      "prepare_run performs no OBS/save requests.",
+      "dry_run performs no write requests.",
+      "event_callback emits stable stage IDs.",
+      "build_submission_artifacts returns sign_map/signature/originalSign.",
+      "build_submission_payload still returns the old 3-tuple.",
+      "execute_full_run old signature still works.",
+      "cancel_event before OBS returns CANCELLED.",
+      "cancel_event after OBS returns CANCEL_TOO_LATE."
+    ],
+    "instrumented": [
+      "APK installs and launches on a real arm64 device.",
+      "No listening socket owned by the app.",
+      "Token survives app restart.",
+      "Manual GeeTest flow reaches the login endpoint.",
+      "Policy/fence/checkpoint screens render real data.",
+      "Dry-run completes with no OBS/save network calls.",
+      "A real execute returns rrid and recheck detail."
+    ],
+    "golden": [
+      "Same mode/distance/time input produces the same route shape and totals as the Python builder.",
+      "Signature field count is 31 for the save/record payload.",
+      "Speed/step bucket counts match totalTime/10.",
+      "Track visits all fixed checkpoints within 0.1m in validation."
+    ],
+    "ui": [
+      "360x800 and 412x915: no horizontal scroll.",
+      "Bottom tab bar respects safe-area insets.",
+      "Touch targets >= 44dp.",
+      "Reduced motion disables route animation.",
+      "Status uses icon + text, not color alone.",
+      "Error, empty, loading, and partial states exist for every data screen."
+    ],
+    "security": [
+      "No token/password/captcha payload in logs or export trace.",
+      "No token in localStorage.",
+      "CSP blocks unexpected remote scripts.",
+      "Bridge rejects unknown methods and invalid params.",
+      "Captcha WebView does not expose the main bridge."
+    ],
+    "manual": [
+      "Verify GeeTest in WebView on the target phone.",
+      "Verify TLS/CA on the target phone.",
+      "Verify behavior when the app is backgrounded during a run.",
+      "Verify token expiry handling.",
+      "Verify a 3 km / 1060 s dry-run and a real run on a test account."
+    ]
+  },
+  "traceability": [
+    {
+      "feature": "登录页 UI",
+      "page": "login",
+      "status": "new",
+      "source": "—",
+      "notes": "Project has no UI."
+    },
+    {
+      "feature": "checkGeeUse",
+      "page": "login",
+      "status": "existing",
+      "source": "协议/7.3.92/login/client.py:check_gee_use",
+      "notes": "Bridge only."
+    },
+    {
+      "feature": "手动极验滑块",
+      "page": "login",
+      "status": "new",
+      "source": "协议/7.3.92/login/captcha.py + login/assets/gt4.js",
+      "notes": "Existing solver is Node+Playwright; WebView manual integration is new."
+    },
+    {
+      "feature": "geeValidate / submitLogin",
+      "page": "login",
+      "status": "existing",
+      "source": "协议/7.3.92/login/client.py",
+      "notes": "Use stepwise methods, not login()."
+    },
+    {
+      "feature": "Token 加密存储",
+      "page": "login/settings",
+      "status": "new",
+      "source": "—",
+      "notes": "CLI uses args only."
+    },
+    {
+      "feature": "PC Token 兜底",
+      "page": "login/token",
+      "status": "new",
+      "source": "—",
+      "notes": "Fallback if WebView GeeTest is blocked."
+    },
+    {
+      "feature": "个人档案",
+      "page": "console",
+      "status": "existing",
+      "source": "协议/7.3.92/profile/client.py:get_user_info",
+      "notes": "CLI --profile."
+    },
+    {
+      "feature": "学期进度",
+      "page": "console",
+      "status": "adapter",
+      "source": "协议/7.3.92/sport_client.py:get_semester_progress",
+      "notes": "CLI does not expose it; verify response."
+    },
+    {
+      "feature": "控制台 UI / 检查清单",
+      "page": "console",
+      "status": "new",
+      "source": "—",
+      "notes": "Pure UI."
+    },
+    {
+      "feature": "跑步规则",
+      "page": "policy",
+      "status": "existing",
+      "source": "协议/7.3.92/policy/models.py:RunRule",
+      "notes": "CLI --rules."
+    },
+    {
+      "feature": "有效时段",
+      "page": "policy",
+      "status": "existing",
+      "source": "RunRule.valid_times",
+      "notes": "Display only."
+    },
+    {
+      "feature": "人脸抽检",
+      "page": "policy",
+      "status": "existing",
+      "source": "FaceCheckConfig",
+      "notes": "Display + risk warning is new."
+    },
+    {
+      "feature": "电子围栏",
+      "page": "policy",
+      "status": "existing",
+      "source": "GeoFenceArea.polygon_points",
+      "notes": "SVG rendering is new."
+    },
+    {
+      "feature": "官方点位",
+      "page": "policy",
+      "status": "existing",
+      "source": "协议/7.3.92/policy/client.py:get_checkpoints_for_run",
+      "notes": "CLI --checkpoints."
+    },
+    {
+      "feature": "多跑步区域选择",
+      "page": "policy",
+      "status": "adapter",
+      "source": "get_checkpoints_for_run raises on multiple areas",
+      "notes": "Need UI selection or actionable error."
+    },
+    {
+      "feature": "跑步配置 UI",
+      "page": "runSetup",
+      "status": "new",
+      "source": "—",
+      "notes": "Pure UI."
+    },
+    {
+      "feature": "距离/时长",
+      "page": "runSetup",
+      "status": "existing",
+      "source": "协议/7.3.92/cli.py --distance/--time-sec",
+      "notes": "UI input new."
+    },
+    {
+      "feature": "配速计算与规则警告",
+      "page": "runSetup",
+      "status": "new",
+      "source": "RunRule fields exist",
+      "notes": "No backend validation for speed/step."
+    },
+    {
+      "feature": "路线预览",
+      "page": "runSetup",
+      "status": "adapter",
+      "source": "协议/7.3.92/running/builder.py:generate_track_around_points",
+      "notes": "Need prepare_run; no OBS/save."
+    },
+    {
+      "feature": "速度/步频图表",
+      "page": "runSetup",
+      "status": "adapter",
+      "source": "SpeedBucket / StepBucket",
+      "notes": "Data exists; chart UI new."
+    },
+    {
+      "feature": "演练模式",
+      "page": "runSetup",
+      "status": "new",
+      "source": "—",
+      "notes": "dry-run."
+    },
+    {
+      "feature": "全链路执行",
+      "page": "running",
+      "status": "existing",
+      "source": "协议/7.3.92/running/client.py:execute_full_run",
+      "notes": "Refactor + bridge."
+    },
+    {
+      "feature": "5 步步进器",
+      "page": "running",
+      "status": "adapter",
+      "source": "execute_full_run internal steps",
+      "notes": "Six internal stage IDs; UI groups settle + recheck into step 5."
+    },
+    {
+      "feature": "实时日志",
+      "page": "running",
+      "status": "adapter",
+      "source": "progress_callback strings",
+      "notes": "Structured events new."
+    },
+    {
+      "feature": "时间戳回填提示",
+      "page": "running",
+      "status": "existing",
+      "source": "startTime = stopTime - totalTime",
+      "notes": "Behavior exists; UI copy new."
+    },
+    {
+      "feature": "取消",
+      "page": "running",
+      "status": "new",
+      "source": "—",
+      "notes": "No backend cancel."
+    },
+    {
+      "feature": "结果页 UI",
+      "page": "result",
+      "status": "new",
+      "source": "—",
+      "notes": "Pure UI."
+    },
+    {
+      "feature": "rrid / 达标 / 里程",
+      "page": "result",
+      "status": "existing",
+      "source": "RunningSubmissionResult",
+      "notes": "Bridge/display."
+    },
+    {
+      "feature": "签名摘要",
+      "page": "result",
+      "status": "adapter",
+      "source": "协议/7.3.92/running/builder.py:build_submission_payload (sign_map is local)",
+      "notes": "Expose via SubmissionArtifacts."
+    },
+    {
+      "feature": "OBS 状态",
+      "page": "result",
+      "status": "adapter",
+      "source": "协议/7.3.92/running/client.py:upload_to_obs",
+      "notes": "Structured ObsResult new."
+    },
+    {
+      "feature": "重新回查",
+      "page": "result",
+      "status": "existing",
+      "source": "协议/7.3.92/history/client.py:get_one_record",
+      "notes": "Display/button new."
+    },
+    {
+      "feature": "导出记录",
+      "page": "result",
+      "status": "new",
+      "source": "—",
+      "notes": "Redact secrets."
+    },
+    {
+      "feature": "设置页 UI",
+      "page": "settings",
+      "status": "new",
+      "source": "—",
+      "notes": "Pure UI."
+    },
+    {
+      "feature": "Token 状态",
+      "page": "settings",
+      "status": "new",
+      "source": "—",
+      "notes": "No local token storage today."
+    },
+    {
+      "feature": "稳定设备 ID",
+      "page": "settings",
+      "status": "new",
+      "source": "协议/7.3.92/core/config.py:load_customer_device (random per call)",
+      "notes": "Persist in EncryptedSharedPreferences."
+    },
+    {
+      "feature": "清除会话",
+      "page": "settings",
+      "status": "new",
+      "source": "—",
+      "notes": "Keep device ID."
+    },
+    {
+      "feature": "版本信息",
+      "page": "settings",
+      "status": "existing",
+      "source": "core/config.py, README",
+      "notes": "Display new."
+    },
+    {
+      "feature": "免责声明",
+      "page": "settings",
+      "status": "existing",
+      "source": "README",
+      "notes": "Display new."
+    }
+  ],
+  "assumptions": [
+    "get_semester_progress works and returns a stable SemesterInfo.",
+    "GeeTest v4 works inside Android WebView without being blocked.",
+    "speedTop/speedBottom formatting is consistent enough for a non-blocking warning.",
+    "Official checkpoint retrieval works for the user's school/account; multiple areas can be resolved by the user.",
+    "Face check is disabled for the user's school; if enabled, the run may be invalid.",
+    "Chaquopy TLS/CA works on the target device.",
+    "The server accepts timestamp-backfilled runs without a real 17-minute wait.",
+    "A stable DeviceId does not trigger additional risk control compared with the CLI's random DeviceId."
+  ],
+  "risks": [
+    {
+      "risk": "GeeTest blocks WebView or detects automation",
+      "impact": "Login impossible",
+      "mitigation": "Test early; fall back to gt4-index.html + Android JSInterface; keep PC token import."
+    },
+    {
+      "risk": "Chaquopy/AGP/Capacitor version incompatibility",
+      "impact": "Build fails",
+      "mitigation": "M0 hello-world; pin Chaquopy 17.1 + Python 3.12 + Capacitor 7; use official compatibility tables."
+    },
+    {
+      "risk": "Chinese path encoding issues",
+      "impact": "Gradle/JDK build errors",
+      "mitigation": "ASCII build path or JAVA_TOOL_OPTIONS=-Dfile.encoding=UTF-8; UTF-8 source files."
+    },
+    {
+      "risk": "TLS/CA failure on device",
+      "impact": "All requests fail",
+      "mitigation": "Test on device; explicit system CA or certifi fallback."
+    },
+    {
+      "risk": "Token expiry",
+      "impact": "Mid-flow failure",
+      "mitigation": "Detect auth errors, clear session, redirect to login."
+    },
+    {
+      "risk": "OBS success but settlement failure",
+      "impact": "Partial state",
+      "mitigation": "Show partial state; retry/recheck."
+    },
+    {
+      "risk": "Recheck failure",
+      "impact": "Unknown validity",
+      "mitigation": "Show unknown, never success."
+    },
+    {
+      "risk": "Multiple run areas",
+      "impact": "Checkpoint query fails",
+      "mitigation": "UI area selector or actionable error."
+    },
+    {
+      "risk": "Face check enabled",
+      "impact": "Invalid run",
+      "mitigation": "Prominent warning; recommend not running."
+    },
+    {
+      "risk": "App backgrounded during run",
+      "impact": "Interrupted task",
+      "mitigation": "Keep screen awake; warn; no foreground service in v1."
+    },
+    {
+      "risk": "Account/compliance risk",
+      "impact": "Account restriction or school discipline",
+      "mitigation": "Personal/authorized accounts only; dry-run for development; no multi-account."
+    }
+  ],
+  "milestones": [
+    {
+      "id": "M0",
+      "name": "Scaffold and bridge proof",
+      "deliverables": [
+        "Vue + Capacitor project",
+        "Chaquopy hello-world",
+        "ProtocolPlugin ping",
+        "GeeTest WebView trial"
+      ],
+      "estimate": "2-3 days"
+    },
+    {
+      "id": "M1",
+      "name": "Auth",
+      "deliverables": [
+        "Login UI",
+        "Manual captcha",
+        "Token secure storage",
+        "Profile",
+        "Session restore"
+      ],
+      "estimate": "3-5 days"
+    },
+    {
+      "id": "M2",
+      "name": "Policy",
+      "deliverables": [
+        "Rule page",
+        "Fences",
+        "Checkpoints",
+        "SVG map",
+        "Multi-area handling"
+      ],
+      "estimate": "3-4 days"
+    },
+    {
+      "id": "M3",
+      "name": "Preview",
+      "deliverables": [
+        "Run setup",
+        "prepare_run",
+        "Route/charts",
+        "Dry-run"
+      ],
+      "estimate": "4-6 days"
+    },
+    {
+      "id": "M4",
+      "name": "Execute",
+      "deliverables": [
+        "Full run chain",
+        "Stage events",
+        "Result",
+        "Recheck",
+        "Cancel"
+      ],
+      "estimate": "4-6 days"
+    },
+    {
+      "id": "M5",
+      "name": "Hardening",
+      "deliverables": [
+        "Error handling",
+        "Device tests",
+        "Signing",
+        "Doc review"
+      ],
+      "estimate": "3-5 days"
+    }
+  ],
+  "acceptanceCriteria": [
+    "APK installs and launches on Android 7.0+ arm64.",
+    "The app owns no listening port and starts no local HTTP server.",
+    "Login triggers checkGeeUse and shows GeeTest only when needed.",
+    "Manual GeeTest completes and login succeeds.",
+    "Token is encrypted at rest and restored after restart.",
+    "Policy page shows rules, valid times, face-check status, fence polygon, and official checkpoints.",
+    "Preview generates route, buckets, and signature summary with no OBS/save requests.",
+    "Dry-run performs no write requests; logs prove it.",
+    "Execute shows stage progress and returns rrid and validity.",
+    "Recheck returns a record; recheck failure shows unknown.",
+    "Network, auth, captcha, OBS, and settlement failures show actionable errors and do not crash.",
+    "Cancel works before OBS; after OBS it returns CANCEL_TOO_LATE.",
+    "360x800 and 412x915 have no horizontal scroll; touch targets >= 44dp; tab bar respects safe areas.",
+    "Logs and exported traces contain no token, password, captcha payload, or full DeviceId.",
+    "assembleRelease produces a signed APK; the same keystore can update it.",
+    "Every existing/adapter/new label in this spec matches the implementation and tests."
+  ],
+  "implementationOrder": [
+    "1. Create Vue + Capacitor app; build and open on Android.",
+    "2. Add Chaquopy; sync Python; expose a ping method; verify APK size and Python 3.12.",
+    "3. Add ProtocolPlugin skeleton, single-thread executor, JSON conversion, error envelope.",
+    "4. Add SecureStore and stable DeviceProfile.",
+    "5. Add app_bridge.initialize and session restore.",
+    "6. Implement prepareLogin/submitLogin and manual GeeTest page.",
+    "7. Implement getProfile and console page.",
+    "8. Implement getPolicy/getFences/getSemesterProgress and policy page.",
+    "9. Implement getCheckpoints and SVG fence/checkpoint rendering.",
+    "10. Refactor RunningClient.prepare_run/submit_prepared_run; keep CLI compatibility.",
+    "11. Implement previewRun, charts, and dry-run.",
+    "12. Implement executeRun, structured events, running page, cancel.",
+    "13. Implement result page, recheck, signature/OBS summaries, exportTrace.",
+    "14. Add settings, logout, masking, disclaimer.",
+    "15. Add tests, error states, accessibility, release signing."
+  ],
+  "cliParity": [
+    {
+      "cli": "-u/-p",
+      "ui": "Login page",
+      "v1": true
+    },
+    {
+      "cli": "-t/--uid/--unid",
+      "ui": "Token import / session restore",
+      "v1": true
+    },
+    {
+      "cli": "--sync-time",
+      "ui": "Implicit in run stages; runtime info",
+      "v1": true
+    },
+    {
+      "cli": "--profile",
+      "ui": "Console/Profile",
+      "v1": true
+    },
+    {
+      "cli": "--rules",
+      "ui": "Policy page",
+      "v1": true
+    },
+    {
+      "cli": "--checkpoints",
+      "ui": "Policy page",
+      "v1": true
+    },
+    {
+      "cli": "--run",
+      "ui": "Run setup -> running -> result",
+      "v1": true
+    },
+    {
+      "cli": "--mode",
+      "ui": "Policy/run mode switch",
+      "v1": true
+    },
+    {
+      "cli": "--distance/--time-sec",
+      "ui": "Run setup inputs",
+      "v1": true
+    },
+    {
+      "cli": "--history",
+      "ui": "—",
+      "v1": false
+    },
+    {
+      "cli": "--watch-ad",
+      "ui": "—",
+      "v1": false
+    }
+  ],
+  "errorCodes": [
+    {
+      "code": "NETWORK",
+      "meaning": "Network failure",
+      "handling": "Retry"
+    },
+    {
+      "code": "SERVER",
+      "meaning": "Server error",
+      "handling": "Show code/message"
+    },
+    {
+      "code": "AUTH_REQUIRED",
+      "meaning": "Not logged in",
+      "handling": "Redirect to login"
+    },
+    {
+      "code": "AUTH_EXPIRED",
+      "meaning": "Token invalid",
+      "handling": "Clear session, redirect to login"
+    },
+    {
+      "code": "CAPTCHA_REQUIRED",
+      "meaning": "Captcha needed",
+      "handling": "Open captcha"
+    },
+    {
+      "code": "CAPTCHA_FAILED",
+      "meaning": "Captcha failed",
+      "handling": "Retry or token import"
+    },
+    {
+      "code": "RULE_FAILED",
+      "meaning": "Rule fetch failed",
+      "handling": "Return to policy and retry"
+    },
+    {
+      "code": "FENCE_FAILED",
+      "meaning": "Fence fetch failed",
+      "handling": "Retry"
+    },
+    {
+      "code": "CHECKPOINT_FAILED",
+      "meaning": "Checkpoint fetch failed",
+      "handling": "Show error; do not silently fall back for scoring runs"
+    },
+    {
+      "code": "MULTI_RUN_AREA",
+      "meaning": "Multiple run areas",
+      "handling": "Ask user to select"
+    },
+    {
+      "code": "OBS_URL_FAILED",
+      "meaning": "Presign failed",
+      "handling": "Retry"
+    },
+    {
+      "code": "OBS_PUT_FAILED",
+      "meaning": "OBS upload failed",
+      "handling": "Retry"
+    },
+    {
+      "code": "SAVE_FAILED",
+      "meaning": "Settlement failed",
+      "handling": "Show server code/message"
+    },
+    {
+      "code": "RECHECK_UNKNOWN",
+      "meaning": "Recheck failed",
+      "handling": "Show unknown, not valid"
+    },
+    {
+      "code": "CANCELLED",
+      "meaning": "Cancelled before OBS",
+      "handling": "Show cancelled"
+    },
+    {
+      "code": "CANCEL_TOO_LATE",
+      "meaning": "Cancel after OBS",
+      "handling": "Show not cancellable"
+    },
+    {
+      "code": "DRY_RUN",
+      "meaning": "Dry-run complete",
+      "handling": "Show preview/result"
+    },
+    {
+      "code": "INTERNAL",
+      "meaning": "Unexpected error",
+      "handling": "Show traceId and feedback"
+    }
+  ],
+  "glossary": [
+    {
+      "term": "WebView",
+      "definition": "Android's embedded web renderer; not a browser app, no address bar, no server."
+    },
+    {
+      "term": "Capacitor",
+      "definition": "Hybrid app framework that packages web assets into a native shell and provides a JS-to-Kotlin bridge."
+    },
+    {
+      "term": "Kotlin",
+      "definition": "Android native programming language used for the shell, bridge, secure storage, and Chaquopy startup."
+    },
+    {
+      "term": "Chaquopy",
+      "definition": "Python runtime for Android that embeds CPython in the app process via JNI."
+    },
+    {
+      "term": "Native bridge",
+      "definition": "In-process message channel between JS and Kotlin; not HTTP and not a server."
+    },
+    {
+      "term": "PreparedRun",
+      "definition": "Python dataclass holding a fully synthesized run ready for preview or submission."
+    },
+    {
+      "term": "Dry-run",
+      "definition": "Prepare and validate locally without OBS/save/recheck writes."
+    },
+    {
+      "term": "Time backfill",
+      "definition": "The protocol sets startTime = stopTime - totalTime instead of waiting in real time."
+    }
+  ],
+  "openQuestions": [
+    "Confirm the final app display name and package name before release.",
+    "Confirm the dark-console theme or provide an alternative palette before implementation.",
+    "Confirm whether to ship the PC token import fallback in v1 (recommended: yes).",
+    "Confirm the target test account for real submission validation.",
+    "Confirm whether the target school has one or multiple run areas."
+  ]
+}

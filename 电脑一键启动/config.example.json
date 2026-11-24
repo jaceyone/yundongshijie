@@ -1,0 +1,15 @@
+{
+  "username": "13800000000",
+  "password": "your-password",
+  "distance": 3000,
+  "time_sec": 1060,
+  "mode": 1,
+  "route_mode": "osm",
+  "dry_run_default": false,
+  "confirm_before_submit": true,
+  "campus": "xuchang_280173698",
+  "node_path": "",
+  "chromium_path": "",
+  "allowed_phones": [],
+  "session_file": "session.json"
+}
